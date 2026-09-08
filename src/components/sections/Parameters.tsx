@@ -13,33 +13,25 @@ export function Parameters() {
             aria-hidden
             className="size-4 shrink-0 rounded-full bg-brand-primary"
           />
-          <h2 className="type-eyebrow text-text-primary">
-            Operating parameters
-          </h2>
+          <h2 className="type-eyebrow text-text-primary">The settings</h2>
         </div>
 
         <div className="flex flex-1 flex-col gap-10">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[560px] border-collapse text-left">
+            <table className="w-full min-w-[420px] border-collapse text-left">
               <thead>
                 <tr className="border-b border-rule">
-                  <th className="type-eyebrow w-[120px] pb-3 pr-6 font-normal text-text-secondary">
-                    Symbol
-                  </th>
                   <th className="type-eyebrow pb-3 pr-6 font-normal text-text-secondary">
-                    Meaning
+                    Setting
                   </th>
                   <th className="type-eyebrow pb-3 font-normal text-text-secondary">
-                    Setting
+                    Value
                   </th>
                 </tr>
               </thead>
               <tbody>
                 {PARAMETERS.map((row) => (
-                  <tr key={row.sym} className="border-b border-rule">
-                    <td className="type-label py-3 pr-6 align-top text-brand-primary normal-case">
-                      {row.sym}
-                    </td>
+                  <tr key={row.meaning} className="border-b border-rule">
                     <td className="type-body-sm py-3 pr-6 align-top text-text-secondary">
                       {row.meaning}
                     </td>

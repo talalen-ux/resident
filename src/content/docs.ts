@@ -1,17 +1,18 @@
 /**
- * Docs copy.
+ * Docs copy, written for someone who has never provided liquidity before.
  *
- * Every number here is read from the code it describes, not chosen to read
- * well: the gate thresholds are DEFAULT_ALERT_CONFIG in src/lib/sim/opportunity.ts,
- * the width and entry policy is DEFAULT_WIDTH_CONFIG / DEFAULT_ENTRY_CONFIG and
- * the exits DEFAULT_EXIT_CONFIG in src/lib/sim/strategy.ts, and the ledger is
- * HOLDER_BPS and the accessors in contracts/ResidentVault.sol. If one of those
- * changes and this file does not, the docs are wrong — that is the intended
- * failure mode, and it is why the values are quoted rather than paraphrased.
+ * Two rules held throughout: no term is used before it is explained in ordinary
+ * words, and no number is softened. Plain language is about the words, not the
+ * facts — the custody risk, the missing keeper and the "these are ceilings, not
+ * results" caveat are all still here, just said in a way a normal person can
+ * act on.
  *
- * The register is a protocol documenting itself. It does not borrow the claims
- * that usually travel with that register: nothing here is described as
- * non-custodial, audited, governed or live, because none of it is.
+ * Every threshold is read from the code it describes: the gates from
+ * DEFAULT_ALERT_CONFIG in src/lib/sim/opportunity.ts, the width and entry rules
+ * from DEFAULT_WIDTH_CONFIG / DEFAULT_ENTRY_CONFIG and the exits from
+ * DEFAULT_EXIT_CONFIG in src/lib/sim/strategy.ts, the split from HOLDER_BPS in
+ * contracts/ResidentVault.sol. Change one of those without changing this file
+ * and the docs are wrong.
  */
 
 export const TOKEN = "$RES";
@@ -19,58 +20,60 @@ export const CHAIN = "Robinhood Chain";
 export const QUOTE = "USDG";
 
 export const NAV_LINKS = [
-  { label: "Overview", href: "#overview" },
-  { label: "Capital", href: "#capital" },
-  { label: "Selection", href: "#selection" },
-  { label: "Width", href: "#width" },
-  { label: "Entry", href: "#entry" },
-  { label: "Management", href: "#management" },
-  { label: "Accounting", href: "#accounting" },
-  { label: "Custody", href: "#custody" },
-  { label: "Parameters", href: "#parameters" },
+  { label: "The idea", href: "#overview" },
+  { label: "The money", href: "#capital" },
+  { label: "Picking pools", href: "#selection" },
+  { label: "The range", href: "#width" },
+  { label: "Opening", href: "#entry" },
+  { label: "Managing", href: "#management" },
+  { label: "Getting paid", href: "#accounting" },
+  { label: "Control", href: "#custody" },
+  { label: "Settings", href: "#parameters" },
 ] as const;
 
-export const HERO_HEADLINE =
-  "Concentrated liquidity in tokenized equity pools, sized so that fees outrun the bleed.";
+export const HERO_HEADLINE = "How Resident works, in plain English.";
 
 export const HERO_STANDFIRST =
-  "Resident deploys capital as concentrated liquidity in thin, high-turnover tokenized equity pools on Robinhood Chain. Trading fees on $RES capitalize the positions. 15% of realized profit is distributed to holders every 15 minutes; 85% is retained as working capital.";
+  "Resident puts money into trading pools for tokenized stocks and collects a cut of the trades that happen there. The fees from $RES pay for it. 15% of what it makes goes to holders every 15 minutes, and 85% goes back in to buy more positions.";
 
 export const HERO_NOTE =
-  "This page states the policy, including the parts that are unfavourable. Every threshold below is the value the code actually runs with.";
+  "No jargon without an explanation, and no number talked up. The parts that are unfinished or risky are on this page too.";
 
 export const PILLARS = [
   {
     icon: "reference" as const,
-    eyebrow: "Width from volatility",
-    body: "Band width is set from the pool's own realised volatility, so time in range is a target rather than a side effect of a constant.",
+    eyebrow: "The range fits the pool",
+    body: "Calm pools get a tight range, jumpy pools get a wide one. It is worked out from how much each pool actually moves, not picked once and reused.",
   },
   {
     icon: "probe" as const,
-    eyebrow: "Entry on net, not headline",
-    body: "A position is opened only when expected fee income exceeds expected divergence loss at that volatility. A large fee number is not a reason.",
+    eyebrow: "Big fees are not enough",
+    body: "A pool can pay great fees and still lose you money if the price swings hard. Resident only opens when the fees should beat the swings.",
   },
   {
     icon: "payout" as const,
     eyebrow: "15% to holders",
-    body: "15% of realized profit accrues to holders and carries forward. It never resets, and it pays every 15 minutes.",
+    body: "Paid every 15 minutes, straight to your wallet, in USDG. Nothing to stake, nothing to claim.",
   },
 ] as const;
 
-/** The capital cycle. Fee flow only becomes a distribution by passing every stage. */
+/** The money's route, start to finish. */
 export const CYCLE = [
-  { step: "Token fees", note: "Trading fees on $RES accrue to the vault" },
+  { step: "Someone trades $RES", note: "A fee is charged on the trade" },
+  { step: "The fee lands in the vault", note: "One wallet holds everything" },
+  { step: "A pool is picked", note: "It has to clear six checks" },
+  { step: "A range is set", note: "Tight for calm pools, wide for jumpy ones" },
   {
-    step: "Vault",
-    note: "One address holds every balance; the keeper holds gas",
+    step: "The maths is checked",
+    note: "Open only if fees should beat the swings",
   },
-  { step: "Selection", note: "Six gates, re-evaluated continuously" },
-  { step: "Width", note: "1.25σ over a 240-interval horizon" },
-  { step: "Entry test", note: "Open only if fee rate exceeds bleed rate" },
-  { step: "Management", note: "Re-centre after 5 intervals out of range" },
   {
-    step: "Realized profit",
-    note: "Fees collected, less divergence loss taken",
+    step: "The position is minded",
+    note: "Moved when the price walks away from it",
+  },
+  {
+    step: "Profit is counted",
+    note: "Fees collected, minus what the swings cost",
   },
 ] as const;
 
@@ -78,291 +81,276 @@ export const METHOD = [
   {
     n: "01",
     id: "overview",
-    title: "What the protocol does",
+    title: "The idea",
     body: [
-      "A concentrated liquidity position is capital committed between two prices. While the market trades inside that range the position earns a share of every fee paid; outside it, the position holds inventory and earns nothing. The narrower the range, the larger the share of flow — and the more often price leaves it.",
-      "Tokenized equity pools on Robinhood Chain are thin and, in a subset of names, busy. Thin means a five-figure order visibly moves the price, so a modest position takes a large share of the flow. Busy means that flow keeps arriving. Those two conditions together are the only place this strategy pays, and most pools have one without the other.",
-      "The protocol's entire job is deciding which pools have both, how wide to sit, and when the position has stopped being worth holding.",
+      "When you swap one token for another, you are trading against a pool of money someone else put there. They put it up, and they get a small cut of every trade that uses it. That is what Resident does: it is the money in the pool, collecting the cut.",
+      'The twist is that you do not have to cover every price. You can say "my money is only in play between $9 and $11". Inside that window you earn a much bigger share of the trades, because your money is concentrated where the action is. Outside it you earn nothing, and you just sit holding whatever the pool left you with.',
+      "So the whole game is picking the right pools, setting a window that the price will actually stay inside, and knowing when to give up on one. That is all Resident does.",
     ],
-    pull: "Being paid to hold a range is not the same as being paid to be right about price. The position is the fee capture; the inventory is the cost of it.",
+    pull: "You are not betting on the price going up. You are being paid rent for letting other people trade.",
   },
   {
     n: "02",
     id: "capital",
-    title: "Where the capital comes from",
+    title: "Where the money comes from",
     body: [
-      "Trading fees on the $RES token accrue to the protocol vault. That is the sole source of capital for positions: nothing is raised externally, and no balance is held aside as treasury.",
-      "The consequence is worth stating plainly rather than leaving to be inferred. The protocol's capacity to earn is bounded by its own token's turnover, and a quiet market for $RES means a smaller position base, which means smaller distributions. The two are coupled by design and there is no mechanism that decouples them.",
+      "Every time someone buys or sells $RES, a fee is charged. That fee goes into the vault, and the vault is what buys the positions. There is no raise, no VC round, no treasury sitting on the side.",
+      "Which cuts both ways, and it is worth being honest about it: if nobody trades $RES, there are no fees, so there is nothing to put into positions, so there is nothing to pay out. The token's activity and the payouts are tied together on purpose, and nothing separates them.",
     ],
   },
   {
     n: "03",
     id: "selection",
-    title: "Pool selection",
+    title: "How pools get picked",
     body: [
-      "Pools are evaluated continuously against six gates. All six must pass; a pool that fails any one is not a candidate at any size.",
-      "Hook-free with a real LP fee — a Uniswap v4 hook can take the LP's fee before it reaches the position, so a pool running one is excluded regardless of how it prices. At least $25,000 of volume in the trailing hour, because a wide range on a dead pool earns nothing and still bleeds. Liquidity within ±5% of price at or below $400,000, which is what makes a $10,000 band a meaningful share rather than a rounding error. Trading at 60% or more of its 24-hour peak, so the protocol is not providing the exit for a collapse. At least 20 minutes old, which discards the launch minute. And the smart-LP tracker showing net winners among the liquidity providers already there.",
-      "A pool that stops qualifying fades from the board rather than vanishing and stays for 24 hours, so a spike that has already passed is still readable rather than silently erased.",
+      "A pool has to pass all six of these. Fail one and it is out, no matter how good it looks otherwise.",
+      "It has no custom code attached that could take the fees before they reach us. At least $25,000 has been traded in it in the last hour, because a quiet pool pays nothing. There is not too much money already in it — no more than $400,000 near the current price — because the more crowded it is, the smaller our slice. The price is still within 40% of its 24-hour high, so we are not the ones catching a falling knife. It is at least 20 minutes old, which skips the chaos of a brand-new launch. And other people providing money to that pool are currently making money, not losing it.",
+      "Pools that stop qualifying stay on the board for another 24 hours instead of vanishing, so you can still see what happened after a busy spell has passed.",
     ],
-    formula: {
-      expr: "share  =  L_band / ( L_band + L_pool )",
-      caption:
-        "Share of in-range flow, compared as liquidity L rather than as dollar amounts — see Entry",
-    },
   },
   {
     n: "04",
     id: "width",
-    title: "How wide the band sits",
+    title: "How wide the range is",
     body: [
-      "Width is derived from the pool's realised volatility rather than fixed. A band expected to hold for a given horizon must widen with the square root of that horizon, so the same capital in a volatile pool sits wider and takes a smaller share by construction.",
-      "The sigma multiple is calibrated by measurement, not derived. At a volatility of 0.004 over a 240-interval horizon, the fraction of time a random walk spends inside the band runs 83.0% at 1.00σ, 90.8% at 1.25σ, 95.6% at 1.50σ, 99.2% at 2.00σ and 99.8% at 2.50σ.",
-      "Because share is density-weighted, roughly halving the width doubles the fee share — so the last few points of time-in-range are expensive. Moving from 1.25σ to 2.50σ buys nine points of time in range and gives up about half the income to do it. The protocol runs 1.25σ for that reason, clamped to a half-width between 1% and 60%.",
+      "A narrow range earns more per trade but the price escapes it sooner. A wide range earns less but holds on longer. There is no setting that is good at both, so the width is worked out per pool from how much that pool actually bounces around.",
+      "Roughly: halve the width and you about double the earnings, but you spend more time out of the range earning nothing. Resident sits at a width that keeps the price inside about 91% of the time. Going wider — enough to be in range 99.8% of the time — would give up about half the income to buy those last few percent. That trade is not worth it, so it does not take it.",
+      "In practice the range is never tighter than 1% or wider than 60% either side of the price.",
     ],
-    formula: {
-      expr: "w  =  σ · k · √h ,    k = 1.25 ,  h = 240",
-      caption:
-        "Half-width for a band expected to hold h minute-intervals at volatility σ",
-    },
   },
   {
     n: "05",
     id: "entry",
-    title: "The entry test",
+    title: "When it actually opens one",
     body: [
-      "A position is opened only when expected fee income exceeds expected divergence loss at that pool's own volatility. This is the whole decision, and it is deliberately not the one a fee-ranked board makes: a pool paying 3% a day into a book that moves 20% a day is a losing position however good the headline looks, and it is precisely the position a fee ranking recommends.",
-      "Share is computed by comparing liquidity values, not dollar amounts. The naive form — capital divided by capital plus pool liquidity — makes band width free, which it is not: the same capital spread over ±20% has a quarter the liquidity density of ±5% and earns proportionally less of the flow crossing any given price. Comparing actual L prices that in, so widening for safety costs income, which is the real trade.",
-      "Divergence loss is evaluated with the exact position algebra at a one-sigma move in each direction and averaged, rather than with the quadratic impermanent-loss approximation — the loss is symmetric in log price, not in price.",
+      "Here is the part most dashboards get wrong. When the price moves while your money is in a range, you end up holding more of whatever went down and less of whatever went up. You are worse off than if you had just held the two tokens and done nothing. That cost is real and it grows with how much the price moves.",
+      "So a pool paying 3% a day sounds great until you notice the price swings 20% a day, at which point you are losing money while collecting fees. A list ranked by fees recommends that pool every single time.",
+      "Resident compares the two before opening anything: expected fees against expected cost of the swings, at that specific pool's own jumpiness. If the fees do not win, it does not open, no matter how big the fee number is.",
     ],
-    formula: {
-      expr: "net  =  volume · f · share · η  /  capital   −   bleed(w, σ)",
-      caption:
-        "Open when net > 0. η is capture efficiency, currently 1 — an upper bound, not a fitted value",
-    },
   },
   {
     n: "06",
     id: "management",
-    title: "Managing an open position",
+    title: "Looking after an open position",
     body: [
-      "A band out of range earns nothing, so a position is re-centred after five intervals outside its bounds rather than immediately — a single tick through the edge is not a signal.",
-      "The stop is on net: fees already banked, less the bleed, falling 35% below the capital committed. A gross-drawdown stop throws away a position the fees have already paid for, which is the failure mode this is designed around. A pool whose net rate stays negative for 120 intervals is abandoned rather than re-centred, because the pool has changed, not the position.",
-      "Positions that move against the protocol are held and re-centred rather than closed into thin books. That is a real choice with a real cost: it means capital can sit in a losing name for a long time, and the protocol carries that rather than realizing the loss to look clean.",
+      "If the price drifts out of the range, the position stops earning. It is not moved straight away — prices poke past the edge and come back all the time — but if it stays out, the position is picked up and re-centred on the new price.",
+      "A position is closed if what it has actually made, after the cost of the swings, falls 35% below what was put in. If a pool keeps being unprofitable for long enough, it is dropped entirely rather than re-centred, because the problem is the pool, not the position.",
+      "One thing to be clear about: a position that has gone against us is held and moved, not dumped. That means money can sit in a bad name for a while. It is a deliberate choice — selling into a thin pool usually makes the loss worse — but it is a real cost, not a clever trick.",
     ],
   },
   {
     n: "07",
     id: "accounting",
-    title: "Profit and distribution",
+    title: "Getting paid",
     body: [
-      "Realized profit is reported to the vault by the keeper. Profit on an arbitrary venue cannot be derived on-chain without trusting the same quote the keeper used, so the contract does not verify the figure. What it enforces is that the reported total only ever increases, that only 15% of any increase is ever payable, and that distributions can never exceed what is owed or what the vault actually holds.",
-      "A dishonest keeper could therefore under-report profit. It could not pay out more than it reported, retract a report to strand holders, or move funds anywhere the venue allowlist does not already permit.",
-      "Losses are absorbed by the retained 85%. Absorbing a loss stops further accrual until the desk has earned it back; it never claws back profit already credited to holders. Both figures are monotonic, so the balance owed is a function of them and of what has been distributed, and it carries forward rather than resetting.",
+      "Everything the desk makes gets split two ways. 15% is owed to $RES holders. 85% goes back in to open more positions.",
+      "The 15% is sent to your wallet every 15 minutes, in USDG, split by how much $RES you hold. You do not stake anything, you do not claim anything, and you do not sign anything. If the total owed is under $300 it waits until the next round rather than spending more on fees than it pays out.",
+      "What you are owed only ever goes up until it is paid. If the desk loses money, that comes out of the 85% — your share of past profits is never taken back. But no new profit is added to your side until the desk has earned the loss back, so payouts go quiet for a while.",
+      "Worth knowing: the 85% is not your money being held back. It is the desk's working capital. It takes the losses, and you have no claim on it.",
     ],
-    formula: {
-      expr: "O(t)  =  0.15 · Π(t)  −  D(t)",
-      caption:
-        "Owed to holders: 15% of lifetime realized profit, less what has been distributed",
-    },
   },
   {
     n: "08",
     id: "limits",
-    title: "What this does not establish",
+    title: "What is not finished, and what we do not know",
     body: [
-      "Capture efficiency is set to 1. The naive fee formula — volume times fee tier times share — is an upper bound, because it credits the position with every fee paid at every price it covers. Measured against a route-level simulation the realised figure came in far below that. Setting η to 1 states the bound rather than fitting a coefficient to two observations; every projected fee number on this site should be read as a ceiling.",
-      "Nothing here has been deployed. The contracts carry a test suite and have not been audited, no vault exists on mainnet, and the positions dashboard is running on illustrative figures until one does. Pool selection additionally depends on per-pool volume windows and liquidity-provider event history, which an RPC alone cannot serve at usable speed — that indexer is an integration the protocol does not yet have.",
+      "None of this is running yet. The contract that holds the money is written and tested, but it has not been checked by an outside security firm and it has never been deployed. There is no vault holding anything today. The positions page is showing example numbers to demonstrate the format, and says so at the top.",
+      "The part that would actually open and manage positions has not been built yet. What exists is the vault, the maths, and the site. Anyone telling you this is live is wrong.",
+      "And every fee figure on this site is a best case, not a result. The calculation assumes every single trade in a pool goes through our range and pays us — which never quite happens. When we checked that assumption against a proper simulation, the real number came out far lower. Read every projected figure here as a ceiling.",
     ],
   },
 ] as const;
 
 export const LP_BANDS = [
   {
-    mode: "two-sided",
-    label: "Centred, width from σ",
+    mode: "the usual one",
+    label: "A window around today's price",
     summary:
-      "The default. Centred on the pool price and funded on both sides, so it earns the pool fee on flow in either direction. Width comes from the pool's realised volatility rather than a constant, so a volatile pool gets a wider band and a smaller share of flow.",
-    range: "[ P · (1 − w) ,  P · (1 + w) ] ,   w = 1.25σ√240",
+      "Money on both sides of the current price, so it earns whether the price ticks up or down. How wide the window is depends on how much that pool bounces around.",
+    range: "from a bit below today's price to a bit above",
     lifecycle: [
-      "Price leaves the range and stays out for five intervals → re-centred on the new price.",
-      "Net — fees banked less the bleed — falls 35% below capital committed → retired.",
-      "Net rate stays negative for 120 intervals → the pool is abandoned rather than re-centred.",
+      "Price wanders out and stays out → the window is picked up and re-centred.",
+      "Earnings, after the cost of the swings, fall 35% below what went in → closed.",
+      "The pool keeps losing money for long enough → dropped, not re-centred.",
     ],
   },
   {
-    mode: "below",
-    label: "Single-sided, quote only",
+    mode: "the patient one",
+    label: "A window sitting below the price",
     summary:
-      "Placed entirely below the pool price, so it fills only as price falls and never buys above spot. Used where the protocol wants the inventory at a price it has chosen rather than exposure in both directions.",
-    range: "[ P · (1 − 2w) ,  P · (1 − w) ]",
+      "Placed entirely underneath the current price, so it only fills if the price comes down to it. Used when we would rather buy the token at a price we picked than hold it on both sides.",
+    range: "entirely below today's price",
     lifecycle: [
-      "Price falls through the band → the position is all stock, and the inventory is held at cost.",
-      "Price runs above the band → the position is idle quote asset; it is closed and re-placed.",
+      "The price drops through it → we end up holding the token, at the price we chose.",
+      "The price runs away upward → nothing happened; it is closed and re-placed higher.",
     ],
   },
 ] as const;
 
 export const LP_EXPOSURE =
-  "A concentrated position is short volatility and long fees. Both legs are priced at entry — the fee rate against the bleed rate at that pool's own volatility — and a position that fails that test is not opened at any size, whatever its headline yield.";
+  "In one line: you are being paid fees in exchange for taking on the cost of the price moving. Both halves are worked out before anything is opened, and if the fees do not beat the cost, nothing is opened at any size.";
 
 export const SIGNALS = [
   {
-    title: "Opportunity board",
-    body: "Pools ranked by what a $10,000 band would earn right now: share of in-range flow computed from on-chain active liquidity within ±5% of price, applied to the trailing 5-minute, 1-hour, 6-hour and 24-hour volume at the pool's own fee tier. A pool qualifies only when all six selection gates pass.",
+    title: "The pool board",
+    body: "A ranked list of where $10,000 would earn the most right now. It works out what slice of the trading we would get based on how much money is already sitting near the price, then applies that to what has actually traded over the last 5 minutes, hour, 6 hours and day.",
     detail:
-      "A pool that stops qualifying fades rather than vanishing and stays on the board for 24 hours, so a spike that has passed is still readable.",
-    read: "The board ranks; it does not open positions. Every entry still has to pass the net test.",
-    formula: "share  =  10,000 / ( 10,000 + L₅% )",
+      "Pools that stop qualifying fade off the board over 24 hours rather than disappearing, so a spike that has already passed is still visible.",
+    read: "The board is a shortlist, not a decision. Everything on it still has to pass the fees-beat-the-swings test.",
   },
   {
-    title: "Smart-LP tracker",
-    body: "Every liquidity add and remove on the tracked pools is attributed to the wallet behind it and valued at the pool price of that moment; every swap credits in-range positions with their share of the fee. A wallet's seven-day score is what it withdrew minus what it deposited, plus open positions at current price, plus fees credited.",
+    title: "Watching who wins",
+    body: "Every time someone adds or removes money from a tracked pool, it is recorded and valued at the price of that moment, and every trade credits the people whose money was in range. Over a week that gives a score: what they took out, minus what they put in, plus what they still hold and what they earned.",
     detail:
-      "Only positions opened and closed inside the window count as wins or losses, so a wallet that merely sits in a pool is followed but not judged. Contracts are tagged as bots and the protocol's own wallet as desk, so the tracker never scores itself.",
-    read: "A pool the consistent winners are sitting in is worth a look; a pool they have just left is a warning.",
+      "Only positions that were both opened and closed inside the week count as wins or losses, so someone who just parks money is followed but not judged. Bots are tagged, and our own wallet is tagged, so the tracker never scores itself.",
+    read: "A pool the consistent winners are sitting in is worth a look. One they have just left is a warning.",
   },
 ] as const;
 
 export const PAYOUT_STEPS = [
   {
-    label: "Realized",
-    body: "Fees collected less divergence loss taken, reported by the keeper. Lifetime realized profit Π(t) accumulates monotonically.",
+    label: "What it made",
+    body: "Fees collected, minus what the price moves cost. This number only ever goes up.",
   },
   {
-    label: "Retained",
-    body: "85% of each increase is retained as working capital. It funds new positions, absorbs losses, and is never paid out — holders have no claim on it.",
+    label: "85% stays in",
+    body: "Working capital. It buys the next positions and it absorbs the losses. Holders have no claim on it.",
   },
   {
-    label: "Owed",
-    body: "The balance owed to holders is 15% of lifetime realized profit less what has already been paid. It carries forward and never resets.",
+    label: "15% is yours",
+    body: "Owed to holders and carried forward until it is paid. It never resets.",
   },
   {
-    label: "Paid",
-    body: "Every 15 minutes the vault pays min(O, cash) in USDG, pro-rata over an eligibility-filtered holder snapshot, once at least $300 is owed.",
+    label: "Paid out",
+    body: "Every 15 minutes, in USDG, split by how much you hold — once at least $300 is owed in total.",
   },
 ] as const;
 
 export const SNAPSHOT_NOTE =
-  "The snapshot is reconstructed from the token's complete Transfer history maintained locally, never an indexer, and spot-verified against chain state before any value moves. AMM reserves, protocol machinery and desk addresses are excluded from the eligible supply; sub-dust allocations remain in the pot.";
+  "Who holds what is worked out from the token's own full transfer history, kept locally rather than trusted to a third party, and checked against the chain before any money moves. Pools, contracts and the desk's own wallets are left out of the split.";
 
 export const INVARIANTS = [
   {
-    invariant: "All balances live at one address",
+    invariant: "Everything lives at one address",
     mechanism:
-      "Positions, cash and fee inflow settle at the vault; the keeper's wallet carries only gas",
+      "Positions, cash and incoming fees all sit in the vault. The bot's own wallet only holds gas",
   },
   {
-    invariant: "The keeper trades only sanctioned venues",
-    mechanism: "exec() reverts on any target outside the allowlist",
-  },
-  {
-    invariant: "Approvals cannot leak",
-    mechanism: "Token approvals are spender-gated to the same allowlist",
-  },
-  {
-    invariant: "Reported profit only increases",
+    invariant: "The bot can only trade approved places",
     mechanism:
-      "recordRealized() reverts on a total below the current one, so a report cannot be retracted to strand holders",
+      "Any other destination is rejected by the contract, not by policy",
   },
   {
-    invariant: "Only 15% is ever payable",
+    invariant: "Spending permissions cannot leak",
+    mechanism: "Token approvals are limited to the same approved list",
+  },
+  {
+    invariant: "Reported profit cannot be walked back",
     mechanism:
-      "holderAccrued tracks 15% of realized; distributions cannot exceed it less what has been paid",
+      "The total can only go up, so a report cannot be retracted to strand holders",
   },
   {
-    invariant: "Absorbing a loss cannot claw back",
+    invariant: "Only 15% can ever be paid out",
     mechanism:
-      "absorbLoss() reduces working capital and halts further accrual; it never reduces holderAccrued",
+      "The contract tracks the holder share separately and will not pay beyond it",
   },
   {
-    invariant: "Distribution is rate-limited",
-    mechanism: "Per-asset rolling 24h cap, contract-enforced",
-  },
-  {
-    invariant: "The keeper is replaceable in one transaction",
-    mechanism: "Rotation is a single transaction; custody is unaffected",
-  },
-  {
-    invariant: "The owner can withdraw everything",
+    invariant: "A loss cannot claw back your share",
     mechanism:
-      "The vault owner (the deployer wallet) may withdraw any asset at any time with no timelock and no governance process; the keeper cannot. This is the protocol's principal risk and it is not mitigated by the contract",
+      "Absorbing a loss reduces the 85% and pauses new profit; it never reduces what holders are already owed",
+  },
+  {
+    invariant: "Payouts are capped per day",
+    mechanism: "A rolling 24-hour limit per asset, enforced by the contract",
+  },
+  {
+    invariant: "The bot can be replaced instantly",
+    mechanism: "One transaction swaps it out. The money does not move",
+  },
+  {
+    invariant: "The owner can take everything",
+    mechanism:
+      "The wallet that deploys the vault can withdraw any asset at any time, with no delay and no vote. The bot cannot. This is the biggest risk here, the contract does not prevent it, and it means this is not trustless — someone has to be trusted",
     flagged: true,
   },
 ] as const;
 
 export const PARAMETERS = [
-  { sym: "k", meaning: "Sigma multiple setting band width", value: "1.25σ" },
-  { sym: "h", meaning: "Width horizon", value: "240 minute-intervals" },
-  { sym: "w", meaning: "Half-width clamp", value: "1% – 60%" },
-  { sym: "η", meaning: "Fee capture efficiency", value: "1 (upper bound)" },
-  { sym: "V₁ₕ", meaning: "Minimum trailing-hour volume", value: "$25,000" },
-  { sym: "L₅%", meaning: "Maximum liquidity within ±5%", value: "$400,000" },
-  { sym: "B", meaning: "Reference band size for ranking", value: "$10,000" },
-  { sym: "π", meaning: "Minimum fraction of 24h peak", value: "60%" },
-  { sym: "a", meaning: "Minimum pool age", value: "20 minutes" },
+  { meaning: "How wide the range is", value: "worked out per pool" },
+  { meaning: "Narrowest and widest it can go", value: "1% – 60%" },
   {
-    sym: "r",
-    meaning: "Intervals out of range before re-centring",
-    value: "5",
+    meaning: "Time the price stays in range, at that width",
+    value: "about 91%",
   },
+  { meaning: "Minimum traded in the last hour", value: "$25,000" },
+  { meaning: "Maximum money already near the price", value: "$400,000" },
+  { meaning: "Size used to rank the board", value: "$10,000" },
+  { meaning: "Must still be within this much of the 24h high", value: "40%" },
+  { meaning: "Minimum age of the pool", value: "20 minutes" },
+  { meaning: "How long out of range before it is moved", value: "5 minutes" },
   {
-    sym: "s",
-    meaning: "Intervals of negative net before abandoning",
-    value: "120",
+    meaning: "How long unprofitable before the pool is dropped",
+    value: "2 hours",
   },
-  {
-    sym: "λ",
-    meaning: "Net loss stop, against capital committed",
-    value: "35%",
-  },
-  { sym: "—", meaning: "Holder share of realized profit", value: "15%" },
-  { sym: "—", meaning: "Distribution threshold", value: "$300 owed" },
+  { meaning: "Loss that closes a position", value: "35% of what went in" },
+  { meaning: "Holders' share of profit", value: "15%" },
+  { meaning: "Minimum before a payout runs", value: "$300 owed" },
 ] as const;
 
 export const CADENCES = [
-  { label: "Pool re-evaluation", value: "continuous" },
-  { label: "Distribution cycle", value: "every 15 minutes" },
-  { label: "Board retention", value: "24 hours after a pool stops qualifying" },
-  { label: "Smart-LP scoring window", value: "7 days" },
+  { label: "Pools re-checked", value: "constantly" },
+  { label: "Payouts", value: "every 15 minutes" },
+  { label: "Board memory", value: "24 hours" },
+  { label: "Who-wins scoring", value: "over 7 days" },
 ] as const;
 
 export const PARAMETERS_NOTE =
-  "Parameters are operating policy, not physical constants. They are published so the protocol's behaviour is predictable to the market it provides liquidity to — and so that a change to them is visible as a change.";
+  "These are settings, not laws of nature. They are published so you can see what the desk is doing — and so that changing one is visible as a change.";
 
 export const FAQS = [
   {
-    question: "Who controls the vault?",
+    question: "Who can take the money?",
     answer:
-      "The vault owner — the deployer wallet — can withdraw any asset at any time, with no timelock and no governance process. The keeper cannot: it is restricted to allowlisted venues and to distributions. This is the protocol's principal risk, it is not mitigated by the contract, and it means Resident is not non-custodial and should not be described as such.",
+      "The wallet that deploys the vault can withdraw everything at any time. There is no delay, no vote, and no way to stop it. The bot cannot — it can only trade at approved places and pay holders. This is the biggest risk here and no amount of code removes it, so it is stated plainly rather than left for you to find out.",
   },
   {
-    question: "Has the protocol been audited?",
+    question: "Has anyone checked the code?",
     answer:
-      "No. The contracts are covered by a test suite but have not been reviewed by a third party, and nothing has been deployed to mainnet. Any audit will be published here with its findings, resolved or otherwise.",
+      "Not from outside. It has a test suite that we wrote, which is not the same thing as a security audit, and nothing has been deployed. When there is an audit it will be published here along with whatever it found, fixed or not.",
   },
   {
-    question: "Why open a narrow band rather than a wide safe one?",
+    question: "Is it running right now?",
     answer:
-      "Because share is density-weighted: the same capital over ±20% has a quarter the liquidity density of ±5%, and earns proportionally less of the flow crossing any price. Width is not free safety, it is paid for in income — so it is set from the pool's measured volatility rather than chosen for comfort.",
+      "No. The vault contract is written and tested, but the part that opens and manages positions has not been built, and nothing is deployed. The positions page shows example numbers to demonstrate the layout, and says so at the top.",
   },
   {
-    question: "What happens when a position loses money?",
+    question: "Why not just pick the pool with the biggest fees?",
     answer:
-      "The loss is absorbed by retained working capital. Profit already accrued to holders is never reversed, but accrual pauses until the loss is recovered, and a smaller capital base earns proportionally less afterwards. Positions are re-centred rather than closed into thin books, which means capital can sit in a losing name for a long time.",
+      "Because a pool can pay huge fees and still lose you money if the price swings hard enough. When the price moves you end up holding more of whatever fell — that cost is real, and it can be bigger than the fees. Resident checks both before opening anything.",
   },
   {
-    question: "How is realized profit determined?",
+    question: "Why a narrow range instead of a safe wide one?",
     answer:
-      "It is reported by the keeper; profit on an arbitrary venue cannot be derived on-chain without trusting the same quote the keeper used, so the contract does not verify it. It does enforce that reported totals only increase, that only 15% is ever payable, and that distributions never exceed what is owed or what the vault holds.",
+      "Width is not free. A wide range earns much less per trade, because your money is spread thin over prices where nothing is happening. Narrow earns more but gets left behind sooner. The width is set from how much each pool actually moves rather than picked for comfort.",
   },
   {
-    question: "Are the fee figures on this site achieved returns?",
+    question: "What happens if it loses money?",
     answer:
-      "No. They are estimates at capture efficiency 1, which credits a position with every fee paid at every price it covers — an upper bound. Measured against a route-level simulation the realised figure was far below it. Read every projected fee number here as a ceiling, and note that nothing has been deployed, so there are no achieved returns to report.",
+      "The loss comes out of the 85% working capital first. What you are already owed is never taken back — but nothing new is added to your side until the desk has made the loss back, so payouts go quiet. Positions that go against us are held and moved rather than dumped, so money can sit in a bad name for a while.",
+  },
+  {
+    question: "Do I have to stake or claim anything?",
+    answer:
+      "No. Hold $RES in your wallet and payouts arrive. There is nothing to lock up, nothing to sign, and nothing that expires.",
+  },
+  {
+    question: "Are the numbers on this site real returns?",
+    answer:
+      "No, and this matters. They assume every trade in a pool goes through our range and pays us in full, which never quite happens. Checked against a proper simulation, the real figure came out far lower. Treat every projection here as a best case, and remember nothing has been deployed, so there are no actual returns to show.",
   },
 ] as const;
 
 export const DOCS_BLURB =
-  "Every threshold on this page is the value the code runs with, quoted from it rather than paraphrased.";
+  "Everything on this page is set in the code, and the numbers here are the ones it actually uses.";
 
 export const TAGLINE = "The resident market maker for tokenized equities";

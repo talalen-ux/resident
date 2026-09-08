@@ -7,7 +7,7 @@ export function Signals() {
       <div className="flex flex-col gap-12 lg:flex-row">
         <div className="flex shrink-0 items-start gap-6 lg:w-[276px]">
           <span className="type-label text-brand-primary">#</span>
-          <h2 className="type-label text-text-primary">Signals</h2>
+          <h2 className="type-label text-text-primary">What it watches</h2>
         </div>
         <div className="flex flex-1 flex-col gap-xl">
           {SIGNALS.map((signal, i) => (
@@ -22,13 +22,6 @@ export function Signals() {
               </div>
               <div className="flex flex-1 flex-col gap-5">
                 <p className="type-body text-text-secondary">{signal.body}</p>
-                {"formula" in signal && signal.formula ? (
-                  <div className="overflow-x-auto bg-bg-secondary px-4 py-3">
-                    <code className="type-label block whitespace-nowrap text-[13px] normal-case text-text-primary">
-                      {signal.formula}
-                    </code>
-                  </div>
-                ) : null}
                 <p className="type-body-sm text-text-secondary">
                   {signal.detail}
                 </p>

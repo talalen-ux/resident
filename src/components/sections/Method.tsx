@@ -1,4 +1,3 @@
-import { Formula } from "@/components/ui/Formula";
 import { METHOD } from "@/content/docs";
 
 /** The method, argued in order. Each step keeps its own anchor. */
@@ -30,13 +29,6 @@ export function Method() {
                 <p className="type-h3 border-l-2 border-brand-primary pl-6 text-text-primary">
                   {section.pull}
                 </p>
-              ) : null}
-
-              {"formula" in section && section.formula ? (
-                <Formula
-                  expr={section.formula.expr}
-                  caption={section.formula.caption}
-                />
               ) : null}
             </div>
           </div>
