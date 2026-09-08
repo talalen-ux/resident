@@ -339,3 +339,22 @@ html:not(:has(#main:target)) {
     animation: none;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Mobile rhythm.
+
+   The spacing scale was drawn for a 1440px frame, where 128px between sections
+   reads as composure. On a 390px screen the same value is most of a viewport of
+   nothing, and the docs page ran to 16,660px of scroll because of it.
+
+   Every spacing utility resolves through these variables at use time, so
+   redefining them here rescales the whole site at once rather than needing a
+   responsive variant on each of the several dozen call sites.
+   --------------------------------------------------------------------------- */
+@media (max-width: 640px) {
+  :root {
+    --spacing-xxl: 64px;
+    --spacing-xl: 40px;
+    --spacing-l: 24px;
+  }
+}

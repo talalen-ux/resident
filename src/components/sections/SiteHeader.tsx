@@ -13,13 +13,13 @@ export function SiteHeader() {
         </Link>
       </div>
       <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-6">
-        <Link href="/positions" className="type-eyebrow text-text-secondary hover:text-text-primary">
+        <Link href="/positions" className="type-eyebrow inline-flex min-h-11 items-center text-text-secondary hover:text-text-primary">
           Positions
         </Link>
-        <Link href="/docs" className="type-eyebrow text-text-secondary hover:text-text-primary">
+        <Link href="/docs" className="type-eyebrow inline-flex min-h-11 items-center text-text-secondary hover:text-text-primary">
           Docs
         </Link>
-        <TokenCta className="type-eyebrow text-brand-primary" />
+        <TokenCta className="type-eyebrow inline-flex min-h-11 items-center text-brand-primary" />
       </div>
     </header>
   );

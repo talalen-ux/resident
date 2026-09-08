@@ -33,7 +33,7 @@ export function Hero() {
           className="type-eyebrow bg-on-brand px-6 py-4 text-brand-fill transition-opacity hover:opacity-85"
           soonClassName="cursor-default opacity-80"
         />
-        <Link href="/docs" className="type-eyebrow text-on-brand/70 underline underline-offset-4 hover:text-on-brand">
+        <Link href="/docs" className="type-eyebrow inline-flex min-h-11 items-center text-on-brand/70 underline underline-offset-4 hover:text-on-brand">
           {HERO.secondary}
         </Link>
       </div>

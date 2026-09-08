@@ -11,7 +11,7 @@ export function AnchorNav() {
         <a
           key={link.href}
           href={link.href}
-          className="type-eyebrow whitespace-nowrap text-text-secondary transition-colors hover:text-text-primary"
+          className="type-eyebrow inline-flex min-h-11 items-center whitespace-nowrap text-text-secondary transition-colors hover:text-text-primary"
         >
           {link.label}
         </a>

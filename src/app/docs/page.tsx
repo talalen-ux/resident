@@ -32,7 +32,7 @@ export default function DocsPage() {
       <SiteHeader />
 
       <HeroBand>
-        <Link href="/" className="type-eyebrow text-on-brand/70 hover:text-on-brand">
+        <Link href="/" className="type-eyebrow inline-flex min-h-11 items-center text-on-brand/70 hover:text-on-brand">
           ← Back
         </Link>
         <h1 className="type-h1 mt-8 max-w-[900px] text-[32px] leading-[36px] text-balance sm:text-[40px] sm:leading-[43px] lg:text-[48px] lg:leading-[51px]">

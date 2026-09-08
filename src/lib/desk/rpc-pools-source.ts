@@ -2,7 +2,7 @@ import type { PoolObservation, VolumeWindows } from "../sim/opportunity.ts";
 import type { PoolKey } from "../sim/v4.ts";
 import { hasHook, poolId, readV4Pool, rpcReader } from "../sim/v4.ts";
 import type { TokenMeta } from "../sim/v3.ts";
-import { UNISWAP } from "../chain.ts";
+import { TOKENS, UNISWAP, isTradable, tickerFor } from "../chain.ts";
 
 import type { PoolsSource } from "./pools-adapter.ts";
 
@@ -237,4 +237,83 @@ function priceFromSqrt(sqrtPriceX96: bigint, watched: WatchedPool) {
   const ratio = Number(sqrtPriceX96) / 2 ** 96;
   const raw = ratio * ratio;
   return raw * 10 ** (watched.token0.decimals - watched.token1.decimals);
+}
+
+/**
+ * Find every pool on the chain, from the PoolManager's own Initialize events.
+ *
+ * This is the answer to "do I need an indexer to know what to watch": no. A v4
+ * pool is addressed by its key rather than by an address, and the key is
+ * exactly what Initialize carries — currency0 and currency1 indexed, fee,
+ * tickSpacing and hooks in the data. Replaying those logs reconstructs every
+ * key that has ever existed without asking anyone.
+ *
+ * An indexer is a thing that has already read these logs and kept them. Reading
+ * them yourself costs requests and time, not capability. What an indexer buys
+ * is not access — it is not having to re-read history on every start.
+ *
+ * Pools are filtered to the canonical registry, because a pool whose tokens are
+ * not the real equity is not a candidate however it prices — see isCanonical.
+ */
+export async function discoverPools(
+  rpcUrl: string,
+  opts: RpcPoolsOptions & { fromBlock?: number; toBlock?: number } = {},
+): Promise<WatchedPool[]> {
+  const rpc = jsonRpc(rpcUrl);
+  const poolManager = opts.poolManager ?? UNISWAP.v4PoolManager;
+  const maxSpan = opts.maxBlockSpan ?? 10_000;
+
+  const head =
+    opts.toBlock ?? Number(BigInt(await rpc<string>("eth_blockNumber", [])));
+  const from = opts.fromBlock ?? 0;
+
+  const logs = await getLogsChunked(
+    rpc,
+    poolManager,
+    [V4_TOPICS.initialize],
+    from,
+    head,
+    maxSpan,
+  );
+
+  const found = new Map<string, WatchedPool>();
+
+  for (const log of logs) {
+    // topics: [signature, id, currency0, currency1]
+    const [, , t1, t2] = log.topics;
+    if (!t1 || !t2) continue;
+    const currency0 = `0x${t1.slice(-40)}`;
+    const currency1 = `0x${t2.slice(-40)}`;
+
+    // data: fee, tickSpacing, hooks, sqrtPriceX96, tick
+    const fee = Number(signedWord(log.data, 0));
+    const tickSpacing = Number(signedWord(log.data, 1));
+    const hooks = `0x${log.data.slice(2).slice(2 * 64 + 24, 3 * 64)}`;
+
+    const meta0 = tokenMeta(currency0);
+    const meta1 = tokenMeta(currency1);
+    if (!meta0 || !meta1) continue;
+
+    const key = { currency0, currency1, fee, tickSpacing, hooks };
+    found.set(poolId(key), { key, token0: meta0, token1: meta1 });
+  }
+
+  return [...found.values()];
+}
+
+/**
+ * Symbol and decimals for a canonical address, or null.
+ *
+ * Null is a rejection, not a gap to fill with a default: a pool paired against
+ * a token that is not in the registry is not a candidate, and guessing 18
+ * decimals for an unknown token silently mis-scales every figure downstream.
+ */
+function tokenMeta(address: string): TokenMeta | null {
+  const lower = address.toLowerCase();
+  if (lower === TOKENS.usdg.toLowerCase()) return { symbol: "USDG", decimals: 6 };
+  if (lower === TOKENS.weth.toLowerCase()) return { symbol: "WETH", decimals: 18 };
+
+  const ticker = tickerFor(address);
+  if (!ticker || !isTradable(address)) return null;
+  return { symbol: ticker, decimals: 18 };
 }

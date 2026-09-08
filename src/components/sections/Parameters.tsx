@@ -18,7 +18,7 @@ export function Parameters() {
 
         <div className="flex flex-1 flex-col gap-10">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[420px] border-collapse text-left">
+            <table className="w-full border-collapse text-left max-sm:block [&_tbody]:max-sm:block [&_td]:max-sm:block [&_thead]:max-sm:hidden [&_tr]:max-sm:block">
               <thead>
                 <tr className="border-b border-rule">
                   <th className="type-eyebrow pb-3 pr-6 font-normal text-text-secondary">

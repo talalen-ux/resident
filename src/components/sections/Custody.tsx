@@ -23,7 +23,7 @@ export function Custody() {
           </p>
 
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[520px] border-collapse text-left">
+            <table className="w-full border-collapse text-left max-sm:block [&_tbody]:max-sm:block [&_td]:max-sm:block [&_thead]:max-sm:hidden [&_tr]:max-sm:block">
               <thead>
                 <tr className="border-b border-rule">
                   <th className="type-eyebrow pb-3 pr-6 font-normal text-text-secondary">

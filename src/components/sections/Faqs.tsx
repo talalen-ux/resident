@@ -29,7 +29,7 @@ export function Faqs() {
                   type="button"
                   onClick={() => setOpen(isOpen ? null : i)}
                   aria-expanded={isOpen}
-                  className="flex w-full cursor-pointer items-start justify-between gap-6 text-left"
+                  className="flex min-h-11 w-full cursor-pointer items-start justify-between gap-6 py-1 text-left"
                 >
                   <span className="type-h5 max-w-[500px] text-text-primary">
                     {faq.question}

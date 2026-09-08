@@ -142,3 +142,91 @@ test("liquidity-provider scoring is reported as unmeasured, not as zero winners"
   assert.equal(obs.smartLpNet, 0);
   assert.equal(obs.smartLpPresent, 0);
 });
+
+// --- Pool discovery ---------------------------------------------------------
+
+import { discoverPools } from "../src/lib/desk/rpc-pools-source.ts";
+import { STOCK_TOKENS, TOKENS } from "../src/lib/chain.ts";
+
+const AMC = STOCK_TOKENS.AMC?.address ?? Object.values(STOCK_TOKENS)[0].address;
+
+/** An Initialize log: fee, tickSpacing, hooks, sqrtPriceX96, tick. */
+function initData(fee, tickSpacing, hooks) {
+  const n = (v) => BigInt(v).toString(16).padStart(64, "0");
+  const addr = hooks.slice(2).toLowerCase().padStart(64, "0");
+  return "0x" + n(fee) + n(tickSpacing) + addr + n(1n << 96n) + n(0);
+}
+const topic = (addr) => "0x" + addr.slice(2).toLowerCase().padStart(64, "0");
+
+async function discoverWith(logs) {
+  const original = globalThis.fetch;
+  globalThis.fetch = async (_url, init) => {
+    const { method } = JSON.parse(init.body);
+    const reply = (result) => ({ ok: true, json: async () => ({ result }) });
+    if (method === "eth_blockNumber") return reply("0x2710");
+    if (method === "eth_getLogs") return reply(logs);
+    throw new Error(`unexpected ${method}`);
+  };
+  try {
+    return await discoverPools("http://stub", { maxBlockSpan: 1_000_000 });
+  } finally {
+    globalThis.fetch = original;
+  }
+}
+
+test("a pool key is reconstructed from its Initialize log", async () => {
+  const pools = await discoverWith([
+    {
+      blockNumber: "0x1",
+      data: initData(3000, 60, "0x0000000000000000000000000000000000000000"),
+      topics: [V4_TOPICS.initialize, "0x" + "11".repeat(32), topic(AMC), topic(TOKENS.usdg)],
+    },
+  ]);
+
+  assert.equal(pools.length, 1);
+  assert.equal(pools[0].key.fee, 3000);
+  assert.equal(pools[0].key.tickSpacing, 60);
+  assert.equal(pools[0].key.hooks, "0x0000000000000000000000000000000000000000");
+  assert.equal(pools[0].token1.symbol, "USDG");
+  assert.equal(pools[0].token1.decimals, 6);
+});
+
+test("a pool paired against an unknown token is not a candidate", async () => {
+  const pools = await discoverWith([
+    {
+      blockNumber: "0x1",
+      data: initData(3000, 60, "0x0000000000000000000000000000000000000000"),
+      topics: [
+        V4_TOPICS.initialize,
+        "0x" + "22".repeat(32),
+        topic("0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"),
+        topic(TOKENS.usdg),
+      ],
+    },
+  ]);
+  // Guessing decimals for an unknown token mis-scales every figure downstream,
+  // so it is dropped rather than defaulted.
+  assert.equal(pools.length, 0);
+});
+
+test("a hook address is carried through, so the hook gate can see it", async () => {
+  const hook = "0x00000000000000000000000000000000000000ff";
+  const pools = await discoverWith([
+    {
+      blockNumber: "0x1",
+      data: initData(500, 10, hook),
+      topics: [V4_TOPICS.initialize, "0x" + "33".repeat(32), topic(AMC), topic(TOKENS.usdg)],
+    },
+  ]);
+  assert.equal(pools[0].key.hooks, hook);
+});
+
+test("the same pool initialised twice is listed once", async () => {
+  const log = {
+    blockNumber: "0x1",
+    data: initData(3000, 60, "0x0000000000000000000000000000000000000000"),
+    topics: [V4_TOPICS.initialize, "0x" + "44".repeat(32), topic(AMC), topic(TOKENS.usdg)],
+  };
+  const pools = await discoverWith([log, { ...log, blockNumber: "0x2" }]);
+  assert.equal(pools.length, 1);
+});
