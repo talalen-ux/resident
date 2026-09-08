@@ -1,0 +1,125 @@
+@import "tailwindcss";
+
+/* ---------------------------------------------------------------------------
+   Design tokens for Resident. The spacing scale and type ramp keep the
+   structure of the design system the site was built from; the palette is
+   Resident's own.
+   --------------------------------------------------------------------------- */
+@theme {
+  /* White ground, green-biased greys, lime accent.
+
+     Lime is split across two tokens on purpose. True lime (#C1FF72) measures
+     1.18:1 against white, so it cannot carry text or hairlines — it is the
+     fill colour, used where solid area makes it read. brand-primary is the
+     deepened lime that carries every accent glyph and rule at 5.1:1. */
+  --color-bg-primary: #ffffff;
+  --color-bg-secondary: #f1f3ee;
+  --color-text-primary: #1a1c17;
+  --color-text-secondary: #6b7065;
+  --color-brand-primary: #4c7a1e;
+  --color-brand-fill: #c1ff72;
+  /* Ink for text sitting ON brand-fill. Equal to text-primary today, and kept
+     as its own token because it is a different requirement: text on the lime
+     surface must stay dark whatever the page ground becomes. */
+  --color-on-brand: #1a1c17;
+
+  --color-rule: rgba(26, 28, 23, 0.15);
+  --color-text-muted: rgba(26, 28, 23, 0.72);
+
+  /* Spacer scale */
+  --spacing-xs: 4px;
+  --spacing-s: 8px;
+  --spacing-l: 32px;
+  --spacing-xl: 64px;
+  --spacing-xxl: 128px;
+
+  --font-sans: var(--font-chivo), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-chivo-mono), ui-monospace, monospace;
+  --font-mono-alt: var(--font-roboto-mono), ui-monospace, monospace;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---------------------------------------------------------------------------
+   Type ramp — one class per Figma text style.
+   --------------------------------------------------------------------------- */
+@layer components {
+  /* Eyebrow: Chivo Mono 12 / 100% / 0 */
+  .type-eyebrow {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1;
+    text-transform: uppercase;
+  }
+
+  /* Section label: Roboto Mono 14 / 1.4 / -2% */
+  .type-label {
+    font-family: var(--font-mono-alt);
+    font-size: 14px;
+    line-height: 1.4;
+    letter-spacing: -0.28px;
+    text-transform: uppercase;
+  }
+
+  /* H1 (hero): Chivo Medium 48 / 51px / -2% */
+  .type-h1 {
+    font-size: 48px;
+    font-weight: 500;
+    line-height: 51px;
+    letter-spacing: -0.96px;
+  }
+
+  /* H2: Chivo Medium 36 / 100% / -3% */
+  .type-h2 {
+    font-size: 36px;
+    font-weight: 500;
+    line-height: 1;
+    letter-spacing: -1.08px;
+  }
+
+  /* H3: Chivo Medium 24 / 1.2 / -2% */
+  .type-h3 {
+    font-size: 24px;
+    font-weight: 500;
+    line-height: 1.2;
+    letter-spacing: -0.48px;
+  }
+
+  /* H5/H6: Chivo SemiBold 16 / 100% / -2% */
+  .type-h5 {
+    font-size: 16px;
+    font-weight: 600;
+    line-height: 1.2;
+    letter-spacing: -0.32px;
+  }
+
+  /* Body large: Chivo 20 / 1.2 / -2% */
+  .type-body-lg {
+    font-size: 20px;
+    line-height: 1.2;
+    letter-spacing: -0.4px;
+  }
+
+  /* Body regular: Chivo 16 / 1.5 / -4% */
+  .type-body {
+    font-size: 16px;
+    line-height: 1.5;
+    letter-spacing: -0.64px;
+  }
+
+  /* Body small: Chivo 12 / 1.4 / -2% */
+  .type-body-sm {
+    font-size: 12px;
+    line-height: 1.4;
+    letter-spacing: -0.24px;
+  }
+}
