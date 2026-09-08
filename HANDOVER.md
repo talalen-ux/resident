@@ -91,6 +91,51 @@ bridge's quote endpoint, a published rate — feeds it directly. What it must
 never be given is a guess: costs that are made up make every crossing look
 profitable, which is the one failure mode this model exists to prevent.
 
+## Going live, in the order that is actually safe
+
+Three stages. Each is genuinely useful on its own, and the risk only appears at
+the third.
+
+**1. The site — today, no risk.** It is a static Next.js app. `vercel.json`
+pins the framework; set `NEXT_PUBLIC_SITE_URL` to the real domain or every
+share card points at the wrong host, and `NEXT_PUBLIC_TOKEN_URL` when the pool
+exists (until then every call to action reads "Launching soon").
+
+**2. Monitoring — today, still no funds and no keys.** Everything that reads
+the chain works with an RPC alone:
+
+```bash
+RESIDENT_RPC_URL=https://rpc.mainnet.chain.robinhood.com npm run verify:chain
+RESIDENT_RPC_URL=... npm run pools     # discover, observe, rank
+```
+
+Run `verify:chain` first regardless. Every address in `src/lib/chain.ts` was
+transcribed from published sources and has never been checked against the chain,
+because the environment this was written in cannot reach it. That is the single
+weakest assumption in the repository and it costs one command to settle.
+
+This stage is worth sitting in for a while. It is where you find out whether the
+board picks the pools you would have picked, at no cost.
+
+**3. Funds.** Before this, run:
+
+```bash
+RESIDENT_RPC_URL=... RESIDENT_VAULT=0x... npm run preflight
+```
+
+It reads only — no key, no signature, nothing changed — and exits non-zero if
+anything fails, so it can gate a funding transaction rather than relying on
+someone reading the output. It checks the deployed bytecode answers this
+source's ABI, that owner and keeper are different addresses, that the split is
+15%, that the ledger is zeroed, that the distribution cap is set, and that any
+allowlisted bridge has a cap you meant.
+
+**What it cannot check, and what stops this stage today:** there is no keeper.
+Nothing in this repository opens a position, calls `recordRealized`, or signs
+anything. A funded vault with nothing driving it holds money and does nothing —
+so funding it now buys no information that stage 2 does not give you for free.
+Testnet is chain 46630 and the same commands work there.
+
 ## Order of operations
 
 Do not reorder these. Each one can invalidate the next.

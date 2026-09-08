@@ -30,3 +30,28 @@ test("rpc-adapter selectors match the compiled ResidentVault ABI", () => {
     );
   }
 });
+
+/**
+ * scripts/preflight.mjs is the gate that runs immediately before someone sends
+ * the vault money. It reads through the compiled ABI rather than a selector
+ * table, so a rename cannot silently break a read — but a rename CAN remove a
+ * function the script expects, and it would then fail at the worst possible
+ * moment. This pins the surface it depends on.
+ */
+test("preflight only calls functions the vault actually exposes", () => {
+  const { artifacts } = compile();
+  const iface = new Interface(artifacts.ResidentVault.abi);
+
+  const source = readFileSync("scripts/preflight.mjs", "utf8");
+  const called = [...source.matchAll(/\bread\("([A-Za-z_][A-Za-z0-9_]*)"/g)].map(
+    (m) => m[1],
+  );
+  assert.ok(called.length >= 8, `expected several reads, found ${called.length}`);
+
+  for (const name of new Set(called)) {
+    assert.doesNotThrow(
+      () => iface.getFunction(name),
+      `preflight reads ${name}(), which the vault does not expose`,
+    );
+  }
+});

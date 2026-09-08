@@ -15,7 +15,8 @@
     "verify:chain": "node --experimental-strip-types scripts/verify-chain.mjs",
     "backtest": "node --experimental-strip-types scripts/backtest.mjs",
     "screen": "node --experimental-strip-types scripts/screen.mjs",
-    "pools": "node --experimental-strip-types scripts/pools.mjs"
+    "pools": "node --experimental-strip-types scripts/pools.mjs",
+    "preflight": "node --experimental-strip-types scripts/preflight.mjs"
   },
   "dependencies": {
     "next": "16.3.4",
