@@ -52,6 +52,25 @@ export type AlertConfig = {
   minAgeMinutes: number;
   /** See {@link estimateFees}. 1 shows the upper bound. */
   captureEfficiency: number;
+  /**
+   * Reject any pool that runs a v4 hook.
+   *
+   * Off by default, and that default is the correction to an earlier mistake.
+   * The gate used to reject every hooked pool on the grounds that a hook CAN
+   * take the LP's fee. But a dynamic fee is implemented with a hook, so any
+   * pool quoting something other than 0.01/0.05/0.30/1.00% has one — and those
+   * were the best-performing pools on the chain. The gate was throwing out
+   * exactly what it should have been finding.
+   *
+   * What actually matters is whether the fee reaches the position, and that is
+   * observable: slot0 reports the lpFee genuinely being charged, which is what
+   * readV4Pool puts on the pool. A hook that skims the LP shows up there as a
+   * zero or reduced fee and fails the gate on its own merits.
+   *
+   * Turn this on only to be deliberately conservative; it will exclude most of
+   * the live v4 market.
+   */
+  rejectHooks: boolean;
 };
 
 export const DEFAULT_ALERT_CONFIG: AlertConfig = {
@@ -62,6 +81,7 @@ export const DEFAULT_ALERT_CONFIG: AlertConfig = {
   minPeakFraction: 0.6,
   minAgeMinutes: 20,
   captureEfficiency: 1,
+  rejectHooks: false,
 };
 
 /**
@@ -163,11 +183,17 @@ export function evaluatePool(
 
   const gates: Gate[] = [
     {
-      name: "hook-free with a real fee",
-      passed: !obs.hasHook && obs.pool.fee > 0,
-      detail: obs.hasHook
-        ? "runs a v4 hook — it can take the LP's fee"
-        : `${obs.pool.fee / 10_000}% fee tier`,
+      // The fee here is the one slot0 says is actually being charged, not the
+      // static tier on the key — so a hook that skims the LP fails this on the
+      // evidence rather than on the fact that it is a hook.
+      name: "the LP fee reaches us",
+      passed: obs.pool.fee > 0 && !(config.rejectHooks && obs.hasHook),
+      detail:
+        config.rejectHooks && obs.hasHook
+          ? "runs a hook, and hooks are being rejected"
+          : obs.pool.fee > 0
+            ? `${(obs.pool.fee / 10_000).toFixed(2)}% charged${obs.hasHook ? ", dynamic" : ""}`
+            : "no LP fee reaches the position",
     },
     {
       name: "volume",

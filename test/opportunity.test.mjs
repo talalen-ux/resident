@@ -9,6 +9,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  DEFAULT_ALERT_CONFIG,
   bandShare,
   buildBoard,
   estimateFees,
@@ -101,12 +102,49 @@ test("a healthy pool qualifies", () => {
 });
 
 const gateCases = [
-  ["hook-free with a real fee", { hasHook: true }],
   ["volume", { volume: { m5: 100, h1: 5_000, h6: 20_000, h24: 60_000 } }],
   ["holding its range", { peak24h: 20 }],
   ["old enough", { ageMinutes: 5 }],
   ["LPs winning", { smartLpNet: -2 }],
 ];
+
+/**
+ * The correction. A dynamic fee is implemented with a hook, so every pool
+ * quoting something other than a static tier has one — and those were the
+ * best-performing pools on the chain. Rejecting hooks rejected the market.
+ *
+ * What matters is whether the fee reaches the position, which slot0 reports
+ * directly and readV4Pool puts on the pool.
+ */
+test("a hooked pool charging a real fee qualifies", () => {
+  const a = evaluatePool(obs({ hasHook: true }));
+  assert.equal(
+    a.qualifies,
+    true,
+    a.gates.filter((g) => !g.passed).map((g) => g.name).join(", "),
+  );
+  const fee = a.gates.find((g) => g.name === "the LP fee reaches us");
+  assert.match(fee.detail, /dynamic/, "a hooked pool should be marked dynamic");
+});
+
+test("a hook that leaves no fee for the position is rejected", () => {
+  const a = evaluatePool(obs({ hasHook: true, poolOpts: { fee: 0 } }));
+  assert.equal(a.qualifies, false);
+  const failed = a.gates.filter((g) => !g.passed).map((g) => g.name);
+  assert.deepEqual(failed, ["the LP fee reaches us"]);
+});
+
+test("hooks can still be rejected wholesale, for an operator who wants that", () => {
+  const a = evaluatePool(obs({ hasHook: true }), {
+    ...DEFAULT_ALERT_CONFIG,
+    rejectHooks: true,
+  });
+  assert.equal(a.qualifies, false);
+  assert.deepEqual(
+    a.gates.filter((g) => !g.passed).map((g) => g.name),
+    ["the LP fee reaches us"],
+  );
+});
 
 for (const [gate, override] of gateCases) {
   test(`the "${gate}" gate rejects on its own`, () => {
@@ -127,7 +165,9 @@ test("the board ranks by trailing-hour fees and keeps rejects", () => {
   const board = buildBoard([
     obs({ address: "0xa", volume: { m5: 1_000, h1: 60_000, h6: 300_000, h24: 900_000 } }),
     obs({ address: "0xb", volume: { m5: 4_000, h1: 300_000, h6: 900_000, h24: 3_000_000 } }),
-    obs({ address: "0xc", hasHook: true }),
+    // A hook is no longer a rejection, so this one fails for a real reason:
+    // no LP fee reaches the position.
+    obs({ address: "0xc", poolOpts: { fee: 0 } }),
   ]);
 
   assert.deepEqual(board.qualifying.map((a) => a.address), ["0xb", "0xa"]);
