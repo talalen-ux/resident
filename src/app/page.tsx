@@ -1,4 +1,5 @@
 import { Container } from "@/components/layout/Container";
+import { Intro } from "@/components/landing/Intro";
 import { Hero } from "@/components/landing/Hero";
 import { Payout } from "@/components/landing/Payout";
 import { Steps } from "@/components/landing/Steps";
@@ -13,14 +14,22 @@ import { SiteHeader } from "@/components/sections/SiteHeader";
  */
 export default function Home() {
   return (
-    <Container>
-      <SiteHeader />
-      <ChainStrip />
-      <Hero />
-      <Steps />
-      <Payout />
-      <Straight />
-      <SiteFooter />
-    </Container>
+    <>
+      {/* The gate comes first so it leads the tab order: one Tab reaches its
+          enter link. It is dismissed by a `:has()` rule keyed on #main, so DOM
+          order is free — see globals.css. */}
+      <Intro />
+      <div id="main">
+        <Container>
+          <SiteHeader />
+          <ChainStrip />
+          <Hero />
+          <Steps />
+          <Payout />
+          <Straight />
+          <SiteFooter />
+        </Container>
+      </div>
+    </>
   );
 }

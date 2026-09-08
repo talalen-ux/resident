@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { Logo } from "@/components/ui/Logo";
+import { TokenCta } from "@/components/ui/TokenCta";
 
 /** Centred masthead: logo over the utility links. */
 export function SiteHeader() {
@@ -18,9 +19,7 @@ export function SiteHeader() {
         <Link href="/docs" className="type-eyebrow text-text-secondary hover:text-text-primary">
           Docs
         </Link>
-        <a href="#" className="type-eyebrow text-brand-primary">
-          Get $RES
-        </a>
+        <TokenCta className="type-eyebrow text-brand-primary" />
       </div>
     </header>
   );

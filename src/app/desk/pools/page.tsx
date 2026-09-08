@@ -9,7 +9,8 @@ import { FixturePoolsSource, loadBoard } from "@/lib/desk/pools-adapter";
 import { timeAgo } from "@/lib/desk";
 
 export const metadata = {
-  title: "Pools — Resident",
+  title: "Pools",
+  robots: { index: false, follow: false },
   description:
     "Pools where a $10k band would earn the most right now: thin liquidity, heavy volume, LPs winning.",
 };

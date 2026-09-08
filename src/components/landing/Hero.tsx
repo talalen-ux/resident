@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { HeroBand } from "@/components/layout/HeroBand";
+import { TokenCta } from "@/components/ui/TokenCta";
 import { HERO, HERO_STATS } from "@/content/landing";
 
 /** One definitional claim, one paragraph, three figures. */
@@ -27,12 +28,11 @@ export function Hero() {
       </div>
 
       <div className="mt-12 flex flex-wrap items-center gap-6">
-        <a
-          href="#"
+        <TokenCta
+          label={HERO.cta}
           className="type-eyebrow bg-on-brand px-6 py-4 text-brand-fill transition-opacity hover:opacity-85"
-        >
-          {HERO.cta}
-        </a>
+          soonClassName="cursor-default opacity-80"
+        />
         <Link href="/docs" className="type-eyebrow text-on-brand/70 underline underline-offset-4 hover:text-on-brand">
           {HERO.secondary}
         </Link>

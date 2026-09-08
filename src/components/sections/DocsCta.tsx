@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import { DOCS_BLURB } from "@/content/docs";
 
 /** Documentation prompt. */
@@ -10,9 +12,9 @@ export function DocsCta() {
       </div>
       <p className="type-body text-text-secondary lg:w-[382px]">{DOCS_BLURB}</p>
       <div className="flex flex-1 lg:justify-end">
-        <a href="#" className="type-eyebrow text-brand-primary">
-          [read the method]
-        </a>
+        <Link href="/docs" className="type-eyebrow text-brand-primary">
+          [read the docs]
+        </Link>
       </div>
     </section>
   );

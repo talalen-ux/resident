@@ -13,7 +13,10 @@ import { Mark } from "@/components/ui/Logo";
 import { getAdapter, short, timeAgo } from "@/lib/desk";
 
 export const metadata = {
-  title: "Desk — Resident",
+  title: "Desk",
+  // Operator view over live vault state. Excluded in robots.ts as well; this is
+  // the per-page half of the same decision.
+  robots: { index: false, follow: false },
   description:
     "Operator view of the Resident vault: profit ledger, inventory, candidate dislocations, distributions and the eligible set.",
 };

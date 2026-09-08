@@ -6,7 +6,7 @@ import { SiteHeader } from "@/components/sections/SiteHeader";
 import { getAdapter, timeAgo, usd } from "@/lib/desk";
 
 export const metadata = {
-  title: "Positions — Resident",
+  title: "Positions",
   description:
     "Open concentrated-liquidity positions held by the Resident protocol, the fees they have earned, and how that fee income has been split between holders and working capital.",
 };

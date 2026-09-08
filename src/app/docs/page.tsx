@@ -17,7 +17,7 @@ import { SiteHeader } from "@/components/sections/SiteHeader";
 import { HERO_HEADLINE, HERO_NOTE, HERO_STANDFIRST } from "@/content/docs";
 
 export const metadata = {
-  title: "Docs — Resident",
+  title: "Docs",
   description:
     "How Resident selects pools, sets band width from realised volatility, tests entry on net rather than headline yield, manages open positions, and accounts for profit — with every operating parameter and the custody limits stated.",
 };

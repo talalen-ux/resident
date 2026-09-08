@@ -123,3 +123,219 @@ body {
     letter-spacing: -0.24px;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   The intro gate.
+
+   No JavaScript anywhere in here on purpose: the enter control is an anchor to
+   #main, and these rules are what dismiss the overlay. It therefore works with
+   scripts disabled and in a static export, neither of which is true of a gate
+   that hydrates.
+
+   Dismissal keys on :has() rather than a sibling combinator so the gate can sit
+   first in the DOM, where one Tab reaches its enter link. With the gate last, a
+   keyboard user tabbed into the page behind it instead. A browser without
+   :has() cannot open the gate at all, so it is not shown one — see the @supports
+   block below.
+
+   Opacity rather than display so the exit can be a fade; the delayed visibility
+   keeps it out of the tab order once it is gone.
+   --------------------------------------------------------------------------- */
+#intro {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 22px;
+  background: #0d0f0b;
+  opacity: 1;
+  visibility: visible;
+  transition:
+    opacity 0.55s ease,
+    visibility 0s;
+}
+
+body:has(#main:target) #intro {
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity 0.55s ease,
+    visibility 0s linear 0.55s;
+}
+
+/* Hold the page still while the gate is up. */
+html:not(:has(#main:target)) {
+  overflow: hidden;
+}
+
+/* No :has(), no way to dismiss it. Show the site rather than a curtain that
+   will not lift. */
+@supports not (selector(:has(*))) {
+  #intro {
+    display: none;
+  }
+  html {
+    overflow: visible;
+  }
+}
+
+.intro-art {
+  width: 84px;
+  height: 84px;
+}
+.intro-art svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* The bracket draws itself: one path, its own length as the dash. */
+.intro-bracket {
+  stroke-dasharray: 96;
+  stroke-dashoffset: 96;
+  animation: intro-draw 1.1s cubic-bezier(0.65, 0, 0.35, 1) forwards;
+}
+.intro-line {
+  transform-origin: center;
+  transform: scaleX(0);
+  animation: intro-scale-x 0.5s ease-out 0.85s forwards;
+}
+.intro-block {
+  opacity: 0;
+  animation: intro-fade 0.4s ease-out 1.15s forwards;
+}
+
+.intro-word {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: clamp(38px, 9vw, 76px);
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  color: #fff;
+  opacity: 0;
+  transform: translateY(10px);
+  animation: intro-rise 0.7s cubic-bezier(0.22, 1, 0.36, 1) 0.45s forwards;
+}
+
+.intro-rule {
+  width: 0;
+  height: 2px;
+  background: #c1ff72;
+  animation: intro-widen 0.7s cubic-bezier(0.22, 1, 0.36, 1) 0.75s forwards;
+}
+
+.intro-meta {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.55);
+  text-align: center;
+  padding: 0 24px;
+  opacity: 0;
+  animation: intro-fade 0.6s ease-out 0.95s forwards;
+}
+
+/* Fills the viewport, so a click anywhere enters — and it is still a link, so
+   it is focusable and Enter/Space work with no key handling. */
+.intro-enter {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: clamp(40px, 9vh, 88px);
+  text-decoration: none;
+  opacity: 0;
+  animation: intro-fade 0.6s ease-out 1.35s forwards;
+}
+.intro-enter-label {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #c1ff72;
+  border-bottom: 1px solid rgba(193, 255, 114, 0.35);
+  padding-bottom: 6px;
+  transition: border-color 0.2s ease;
+}
+.intro-enter:hover .intro-enter-label,
+.intro-enter:focus-visible .intro-enter-label {
+  border-color: #c1ff72;
+}
+.intro-enter:focus-visible {
+  outline: 2px solid #c1ff72;
+  outline-offset: -6px;
+}
+
+.intro-caret {
+  display: inline-block;
+  width: 7px;
+  height: 12px;
+  margin-left: 8px;
+  vertical-align: -1px;
+  background: #c1ff72;
+  animation: intro-blink 1.1s steps(1, end) infinite;
+}
+
+@keyframes intro-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes intro-scale-x {
+  to {
+    transform: scaleX(1);
+  }
+}
+@keyframes intro-fade {
+  to {
+    opacity: 1;
+  }
+}
+@keyframes intro-rise {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes intro-widen {
+  to {
+    width: clamp(180px, 34vw, 320px);
+  }
+}
+@keyframes intro-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+/* Everything above is decoration. Honour the setting: show the final state
+   immediately and keep the fade out, which carries meaning rather than flourish. */
+@media (prefers-reduced-motion: reduce) {
+  .intro-bracket,
+  .intro-line,
+  .intro-block,
+  .intro-word,
+  .intro-rule,
+  .intro-meta,
+  .intro-enter {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+  .intro-bracket {
+    stroke-dashoffset: 0;
+  }
+  .intro-rule {
+    width: clamp(180px, 34vw, 320px);
+  }
+  .intro-caret {
+    animation: none;
+  }
+}
