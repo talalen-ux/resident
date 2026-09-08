@@ -43,6 +43,33 @@ Two dependencies that operator needs and does not have:
 2. **A reference price feed.** `RESIDENT_REFERENCE_API_URL` in `.env.example`
    is unset and there is no client for it.
 
+## Cross-chain allocation (Solana / Meteora)
+
+The decision layer is built and tested: `src/lib/sim/dlmm.ts` prices a Meteora
+DLMM position, `src/lib/sim/allocate.ts` decides whether moving capital is worth
+the round trip. Neither can move anything — there is no bridge implementation
+and no Solana signer.
+
+Two things to know before wiring one up.
+
+**DLMM is not v3 with different names.** Only the *active bin* earns fees, so
+spreading capital over sixty bins divides the earning stake by sixty rather than
+widening an earning range. A model carried over from v3 overstates a wide DLMM
+position badly. `evaluateDlmm` prices this correctly and returns the same units
+as `evaluateEntry`, which is what lets the two chains be compared at all.
+
+**Bridging changes the security model categorically.** Every guarantee the vault
+makes is an EVM guarantee — the venue allowlist, spender-gated approvals, the
+distribution rate limit. None of it reaches across a bridge. Today a compromised
+keeper can shuffle assets between approved venues; a keeper that can bridge can
+send them to a chain where the contract has no authority at all. Before this
+ships, the contract needs a per-destination cap and a rate limit on bridged
+value, so the exposure is bounded by policy rather than by trusting the keeper.
+
+`src/lib/bridge/types.ts` has the interface and the route options. It has no
+implementation on purpose: a stub returning plausible costs would make every
+cross-chain move look profitable.
+
 ## Order of operations
 
 Do not reorder these. Each one can invalidate the next.
