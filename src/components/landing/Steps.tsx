@@ -4,7 +4,7 @@ import { STEPS, STEPS_HEADING } from "@/content/landing";
 export function Steps() {
   return (
     <section id="how" className="border-t border-rule py-xxl">
-      <h2 className="type-h2 max-w-[560px] text-[28px] text-balance text-text-primary sm:text-[36px]">
+      <h2 className="type-h2 mx-auto max-w-[560px] text-[28px] text-balance text-text-primary sm:text-[36px] text-center">
         {STEPS_HEADING}
       </h2>
 

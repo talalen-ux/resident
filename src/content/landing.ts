@@ -2,11 +2,11 @@
  * Landing page copy. Four sections; the full method lives at /docs.
  *
  * Register: a liquidity protocol describing itself plainly — mechanism first,
- * precise numbers, no hype. What that register must not do here is borrow the
- * claims that usually travel with it. Resident is not non-custodial, not
- * audited, not governed and not deployed, so none of those words appear, and
- * the security section states each absence directly rather than leaving a
- * confident tone to imply otherwise.
+ * precise numbers, no hype. What that register must not do is borrow the claims
+ * that usually travel with it: Resident is not non-custodial, not audited, not
+ * governed and not deployed, so none of those words appear anywhere on the
+ * page. The FAQ here is technical only; custody and deployment status are
+ * stated at /docs, which every section links to.
  *
  * On the 85/15 split: the 85% is protocol working capital, not a holder claim
  * held back. It is deployed, it absorbs losses, and the owner key can withdraw
@@ -73,37 +73,46 @@ export const PAYOUT = {
   ],
 };
 
-export const FAQ_HEADING = "Security and risk";
+export const FAQ_HEADING = "FAQ";
 
 /**
- * The disclosures a reader should have before buying, in the order they matter.
- * Custody leads because it is the largest, and it is stated as the protocol's
- * own limitation rather than framed as a general market caveat.
+ * Technical questions only — how a position works, how pools are chosen, what
+ * happens when price moves. Custody, audit status and deployment status are
+ * deliberately not here; they live in the Custody section and the invariants
+ * table at /docs, which this section links to.
  */
 export const FAQS = [
   {
-    q: "Who controls the vault?",
-    a: "The vault owner — the deployer wallet — can withdraw any asset at any time, with no timelock and no governance process. The keeper cannot: it is restricted to allowlisted venues and to distributions. This is the protocol's principal risk, it is not mitigated by the contract, and it means Resident is not non-custodial and should not be described as such.",
+    q: "What is a concentrated position?",
+    a: "Capital committed between two prices rather than spread across every price. While the market trades inside that range the position earns a share of every fee paid; outside it, the position holds inventory and earns nothing. Narrower means a bigger share of the flow and more time spent out of range.",
   },
   {
-    q: "Has the protocol been audited?",
-    a: "No. The contracts are covered by a test suite but have not been reviewed by a third party, and nothing has been deployed to mainnet. Any audit will be published here with its findings, resolved or otherwise.",
+    q: "How are pools chosen?",
+    a: "Six gates, all of which must pass: no v4 hook and a real LP fee, at least $25,000 of volume in the trailing hour, no more than $400,000 of liquidity within ±5% of price, trading at 60% or more of the 24-hour peak, at least 20 minutes old, and the smart-LP tracker showing net winners among the providers already there.",
   },
   {
-    q: "How is realized profit determined?",
-    a: "It is reported to the vault by the keeper. Profit on an arbitrary venue cannot be derived on-chain without trusting the same quote the keeper used, so the contract does not verify the figure. What it does enforce: reported totals only increase, only 15% is ever payable, and distributions can never exceed what is owed or what the vault holds. A dishonest keeper could under-report; it could not over-pay, retract a report, or move funds outside the allowlist.",
+    q: "How wide is a position?",
+    a: "Width comes from the pool's own realised volatility, not a constant — 1.25σ over a four-hour horizon, clamped between 1% and 60%. A volatile pool gets a wider band and a smaller share of flow by construction. At 1.25σ a position sits in range about 91% of the time; buying the last few points costs roughly half the income.",
   },
   {
-    q: "Why is 85% retained rather than distributed?",
-    a: "Retained capital is what generates the fee income. A protocol that distributes everything cannot grow its position base, and distributions shrink with it. The retained share is working capital, not a deferred holder claim — it absorbs losses first, and holders have no claim on it.",
+    q: "Why not just open in the highest-fee pool?",
+    a: "Because fee income is only one side. A pool paying 3% a day into a book that moves 20% a day loses money, and a fee ranking recommends it every time. A position is opened only when expected fee income beats expected divergence loss at that pool's volatility.",
+  },
+  {
+    q: "What happens when price leaves the range?",
+    a: "Nothing immediately — one tick through the edge is not a signal. After five intervals outside its bounds the position is re-centred on the new price. A pool whose net rate stays negative for 120 intervals is abandoned rather than re-centred, because the pool has changed, not the position.",
   },
   {
     q: "What happens when a position loses money?",
-    a: "The loss is absorbed by retained working capital. Profit already accrued to holders is never reversed, but accrual pauses until the loss is recovered, and a smaller capital base earns proportionally less afterwards.",
+    a: "The loss is absorbed by the retained 85%. Profit already accrued to holders is never reversed, but accrual pauses until the loss is earned back. Positions are held and re-centred rather than closed into thin books, so capital can sit in a losing name for a while.",
   },
   {
-    q: "What happens in a period with no fee income?",
-    a: "There is no distribution. Distributions are funded exclusively by realized profit; the protocol does not distribute principal and does not accrue a yield it has not earned.",
+    q: "Where does the capital come from?",
+    a: "Trading fees on $RES, and nothing else. There is no external raise and no treasury held aside, which means the protocol's capacity to earn is bounded by its own token's turnover.",
+  },
+  {
+    q: "Are the fee figures achieved returns?",
+    a: "No. They are estimates at capture efficiency 1, which credits a position with every fee paid at every price it covers — an upper bound. Measured against a route-level simulation the realised figure came in well below it. Read every projected fee number as a ceiling.",
   },
 ];
 
