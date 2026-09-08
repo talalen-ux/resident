@@ -66,9 +66,11 @@ send them to a chain where the contract has no authority at all. Before this
 ships, the contract needs a per-destination cap and a rate limit on bridged
 value, so the exposure is bounded by policy rather than by trusting the keeper.
 
-`src/lib/bridge/types.ts` has the interface and the route options. It has no
-implementation on purpose: a stub returning plausible costs would make every
-cross-chain move look profitable.
+The allocator takes a bridge's fee, fixed cost and latency as plain numbers
+(`BridgeCost`), so whatever moves the funds — existing perp infrastructure, a
+bridge's quote endpoint, a published rate — feeds it directly. What it must
+never be given is a guess: costs that are made up make every crossing look
+profitable, which is the one failure mode this model exists to prevent.
 
 ## Order of operations
 

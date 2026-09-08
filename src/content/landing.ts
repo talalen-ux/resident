@@ -17,8 +17,8 @@
 export const TOKEN = "$RES";
 
 export const HERO = {
-  headline: "A liquidity protocol for tokenized equities.",
-  sub: "Resident provides concentrated liquidity in tokenized equity markets on Robinhood Chain. Trading fees on $RES capitalize the protocol's positions. 15% of realized profit is distributed to holders every 15 minutes; the remaining 85% is redeployed as working capital.",
+  headline: "The liquidity layer for tokenized equities.",
+  sub: "Concentrated liquidity, priced and placed where fee income beats the cost of holding it — across Robinhood Chain and Solana. Fees on $RES capitalize every position. Holders take 15% of realized profit, every 15 minutes, in USDG.",
   cta: "Get $RES",
   secondary: "Read the docs",
 };

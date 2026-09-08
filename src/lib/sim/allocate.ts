@@ -28,6 +28,14 @@ export type Venue = {
   netRate: number;
 };
 
+/**
+ * What one leg of a crossing costs.
+ *
+ * Plain numbers rather than an abstraction over a bridge: the decision needs a
+ * fee, a fixed cost and a latency, and where those come from — a quote endpoint,
+ * a published rate, existing perp infrastructure — is the caller's business.
+ * Wrapping that in an interface bought nothing the allocator could use.
+ */
 export type BridgeCost = {
   /** Proportional fee for one leg, e.g. 0.0025 for 25bps. */
   feeFraction: number;

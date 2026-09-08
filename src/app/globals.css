@@ -166,8 +166,14 @@ body:has(#main:target) #intro {
     visibility 0s linear 0.55s;
 }
 
-/* Hold the page still while the gate is up. */
-html:not(:has(#main:target)) {
+/* Hold the page still while the gate is up.
+   
+   The :has(#intro) qualifier is load-bearing, not decoration. #main exists only
+   on the landing page, so without it this matched every OTHER page too — where
+   the gate is absent and #main:target can never be true — and locked /docs and
+   /positions solid. Programmatic scrollTo still works under overflow:hidden,
+   which is why checking with scrollTo missed it; a wheel event does not. */
+html:has(#intro):not(:has(#main:target)) {
   overflow: hidden;
 }
 
@@ -176,9 +182,6 @@ html:not(:has(#main:target)) {
 @supports not (selector(:has(*))) {
   #intro {
     display: none;
-  }
-  html {
-    overflow: visible;
   }
 }
 

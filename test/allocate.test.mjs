@@ -7,11 +7,14 @@ import {
   evaluateMove,
 } from "../src/lib/sim/allocate.ts";
 import {
+  DEFAULT_SIZING,
   binHalfWidth,
   binIdForPrice,
   binPrice,
-  bestBinCount,
+  binWeights,
+  bestConfiguration,
   evaluateDlmm,
+  sizeForMarketCap,
 } from "../src/lib/sim/dlmm.ts";
 
 // --- DLMM bin maths ---------------------------------------------------------
@@ -40,30 +43,99 @@ test("width comes from how many bins the position spans", () => {
   assert.ok(Math.abs(binHalfWidth(21, 100) - 0.10462) < 1e-4);
 });
 
-/**
- * The property that separates DLMM from v3. In v3, spreading the same capital
- * wider keeps all of it earning while price is in range. Here only the active
- * bin pays, so widening divides the earning stake — the fee rate must fall
- * faster than the extra time in range can make up, at low volatility.
- */
-test("widening a DLMM position cuts the fee rate, because only one bin earns", () => {
-  const base = {
-    volume: 20_000,
-    feeBps: 100,
-    binStep: 25,
-    deployed: 10_000,
-    liquidityPerBin: 5_000,
-    volatility: 0.002,
-    captureEfficiency: 1,
-  };
-  const tight = evaluateDlmm({ ...base, binCount: 3 });
-  const wide = evaluateDlmm({ ...base, binCount: 41 });
+const BASE = {
+  volume: 20_000, feeBps: 100, binStep: 25, deployed: 10_000,
+  liquidityPerBin: 5_000, volatility: 0.002, captureEfficiency: 1,
+};
 
-  assert.ok(tight.activeBinShare > wide.activeBinShare,
-    `share ${tight.activeBinShare} vs ${wide.activeBinShare}`);
-  assert.ok(wide.timeInRange > tight.timeInRange, "wider should sit in range more often");
-  assert.ok(tight.feeRate > wide.feeRate,
-    `tight ${tight.feeRate} should out-earn wide ${wide.feeRate}`);
+/**
+ * The property that separates DLMM from v3: only the active bin earns, so
+ * widening divides the stake in whichever bin is working.
+ *
+ * Note what this does NOT say. Tighter is not simply better — at 3 bins of 25
+ * bps the position is in range under 10% of the time and earns almost nothing
+ * despite holding 40% of the bin. Fee income peaks somewhere in the middle,
+ * which is exactly why bestConfiguration searches for the width instead of
+ * assuming one.
+ */
+test("widening divides the earning stake", () => {
+  const shares = [3, 15, 41].map(
+    (binCount) => evaluateDlmm({ ...BASE, binCount, shape: "spot" }).effectiveShare,
+  );
+  assert.ok(shares[0] > shares[1] && shares[1] > shares[2], shares.join(" > "));
+});
+
+test("fee income has an interior optimum, so width is searched not assumed", () => {
+  const rates = [3, 15, 41].map(
+    (binCount) => evaluateDlmm({ ...BASE, binCount, shape: "spot" }).feeRate,
+  );
+  // Neither edge wins: too narrow is out of range, too wide holds too little
+  // of the bin that pays.
+  assert.ok(rates[1] > rates[0], "15 bins beats 3");
+  assert.ok(rates[1] > rates[2], "15 bins beats 41");
+});
+
+test("shapes put their weight where they say they do", () => {
+  const spot = binWeights("spot", 5);
+  assert.ok(spot.every((w) => Math.abs(w - 0.2) < 1e-12), "spot is even");
+
+  const curve = binWeights("curve", 5);
+  assert.ok(curve[2] > curve[0] && curve[2] > curve[4], "curve peaks in the middle");
+
+  const bidask = binWeights("bid-ask", 5);
+  assert.ok(bidask[0] > bidask[2] && bidask[4] > bidask[2], "bid-ask is thin in the middle");
+
+  for (const w of [spot, curve, bidask]) {
+    assert.ok(Math.abs(w.reduce((a, b) => a + b, 0) - 1) < 1e-12, "weights normalise");
+  }
+});
+
+/**
+ * The TESTIBULL lesson, as a property. Bid-ask puts the least stake in the
+ * middle bins, which is exactly where a ranging price spends its time — so
+ * while price sits mid-range, spot has more in the earning bin and out-earns
+ * it. Bid-ask only wins when the price actually lives at the edges.
+ */
+test("spot out-earns bid-ask while the price sits mid-range", () => {
+  const spot = evaluateDlmm({ ...BASE, binCount: 15, shape: "spot" });
+  const bidask = evaluateDlmm({ ...BASE, binCount: 15, shape: "bid-ask" });
+  assert.ok(
+    spot.feeRate > bidask.feeRate,
+    `spot ${spot.feeRate} should beat bid-ask ${bidask.feeRate} in the middle`,
+  );
+});
+
+test("curve beats spot on a coin that barely moves", () => {
+  const calm = { ...BASE, volatility: 0.0005, binCount: 15 };
+  const curve = evaluateDlmm({ ...calm, shape: "curve" });
+  const spot = evaluateDlmm({ ...calm, shape: "spot" });
+  // All the time is spent in the middle bins, so weighting there collects more.
+  assert.ok(curve.feeRate > spot.feeRate);
+});
+
+/**
+ * The rug-pump case: a coin that can move violently. Narrow means the price
+ * leaves and the position stops earning entirely; wide keeps something working.
+ */
+test("wide beats narrow when the coin can move violently", () => {
+  const violent = { ...BASE, volatility: 0.05, feeBps: 200, volume: 200_000 };
+  const narrow = evaluateDlmm({ ...violent, binCount: 3, shape: "spot" });
+  const wide = evaluateDlmm({ ...violent, binCount: 69, shape: "spot" });
+  assert.ok(wide.netRate > narrow.netRate,
+    `wide ${wide.netRate} should beat narrow ${narrow.netRate} on a violent coin`);
+});
+
+test("lower market cap sizes smaller and goes wider", () => {
+  const big = sizeForMarketCap(50_000_000);
+  const mid = sizeForMarketCap(10_000_000);
+  const small = sizeForMarketCap(250_000);
+
+  assert.ok(big.capital >= mid.capital && mid.capital > small.capital,
+    "size falls with market cap");
+  assert.ok(small.binCount > mid.binCount && mid.binCount >= big.binCount,
+    "width grows as market cap falls");
+  assert.ok(small.capital >= DEFAULT_SIZING.minCapital, "never below the floor");
+  assert.ok(small.binCount <= DEFAULT_SIZING.maxBinCount, "never past the cap");
 });
 
 test("a violent pair is rejected however big the fee number is", () => {
@@ -72,6 +144,7 @@ test("a violent pair is rejected however big the fee number is", () => {
     feeBps: 200,
     binStep: 100,
     binCount: 5,
+    shape: "spot",
     deployed: 10_000,
     liquidityPerBin: 2_000,
     volatility: 0.09, // 9% a minute
@@ -81,12 +154,13 @@ test("a violent pair is rejected however big the fee number is", () => {
   assert.ok(verdict.netRate < 0);
 });
 
-test("the best bin count is searched, not assumed", () => {
-  const { binCount, verdict } = bestBinCount({
+test("width and shape are both searched, not assumed", () => {
+  const { binCount, shape, verdict } = bestConfiguration({
     volume: 20_000, feeBps: 100, binStep: 25, deployed: 10_000,
     liquidityPerBin: 5_000, volatility: 0.004, captureEfficiency: 1,
   });
   assert.ok(binCount >= 1);
+  assert.ok(["spot", "curve", "bid-ask"].includes(shape));
   assert.ok(Number.isFinite(verdict.netRate));
 });
 

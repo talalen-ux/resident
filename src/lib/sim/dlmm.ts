@@ -49,6 +49,71 @@ export function binHalfWidth(binCount: number, binStep: number): number {
   return (1 + binStep / 10_000) ** sideBins - 1;
 }
 
+/**
+ * How liquidity is spread across the position's bins.
+ *
+ *   spot     even across every bin
+ *   curve    weighted toward the middle, where the price is now
+ *   bid-ask  weighted toward the two edges, thin in the middle
+ *
+ * This is not cosmetic. Only the active bin earns, so what matters is the
+ * weight sitting in whichever bin the price is in — and bid-ask deliberately
+ * puts the least there. A bid-ask position only out-earns spot if the price
+ * spends its time out at the edges; while it sits mid-range, spot has more
+ * stake in the earning bin and collects more, which is why a bigger spot
+ * position placed below the entry can beat a bid-ask whose liquidity ended up
+ * in the top half of the curve.
+ */
+export type LiquidityShape = "spot" | "curve" | "bid-ask";
+
+/** Normalised weight per bin, index 0 being the lowest bin. */
+export function binWeights(shape: LiquidityShape, binCount: number): number[] {
+  const n = Math.max(1, Math.floor(binCount));
+  if (n === 1) return [1];
+
+  const raw: number[] = [];
+  for (let i = 0; i < n; i++) {
+    // -1 at the bottom edge, 0 in the middle, +1 at the top edge.
+    const x = (2 * i) / (n - 1) - 1;
+    if (shape === "spot") raw.push(1);
+    else if (shape === "curve") raw.push(1 - Math.abs(x) * 0.9);
+    else raw.push(0.1 + Math.abs(x) * 0.9);
+  }
+  const total = raw.reduce((a, b) => a + b, 0);
+  return raw.map((w) => w / total);
+}
+
+/**
+ * Probability the active bin sits at each of the position's bins.
+ *
+ * A discrete Gaussian over bin offsets, with the spread set by how far the
+ * price typically travels in a horizon relative to one bin's width. Mass that
+ * falls outside the position is dropped — that is the position being out of
+ * range, and it earns nothing.
+ */
+export function activeBinDistribution(
+  binCount: number,
+  binStep: number,
+  volatility: number,
+  horizon = 240,
+): number[] {
+  const n = Math.max(1, Math.floor(binCount));
+  const binWidth = binStep / 10_000;
+  const travel = volatility * Math.sqrt(horizon);
+  const sigmaBins = binWidth > 0 ? travel / binWidth : 0;
+
+  if (sigmaBins <= 0) {
+    const only = new Array(n).fill(0);
+    only[Math.floor(n / 2)] = 1;
+    return only;
+  }
+
+  const mid = (n - 1) / 2;
+  return Array.from({ length: n }, (_, i) =>
+    Math.exp(-0.5 * ((i - mid) / sigmaBins) ** 2),
+  ).map((v) => v / (sigmaBins * Math.sqrt(2 * Math.PI)) / (1 / 1));
+}
+
 export type DlmmInputs = {
   /** Quote volume per interval. */
   volume: number;
@@ -56,6 +121,8 @@ export type DlmmInputs = {
   binStep: number;
   /** How many bins the position is spread across. 1 concentrates everything. */
   binCount: number;
+  /** How the capital is distributed across those bins. */
+  shape: LiquidityShape;
   /** Capital that actually reaches the pool. */
   deployed: number;
   /** Quote-denominated liquidity already sitting in a typical bin. */
@@ -68,8 +135,8 @@ export type DlmmInputs = {
 
 export type DlmmVerdict = {
   halfWidth: number;
-  /** Share of the active bin, which is the only share that earns. */
-  activeBinShare: number;
+  /** Stake-weighted share of the earning bin, over where the price actually sits. */
+  effectiveShare: number;
   /** Fraction of intervals the price is expected to sit inside the position. */
   timeInRange: number;
   feeRate: number;
@@ -80,45 +147,44 @@ export type DlmmVerdict = {
 };
 
 /**
- * Fraction of time a random walk of this volatility stays inside the position.
- *
- * Same shape as the calibration behind the v3 width policy: a band of half
- * width w at volatility σ holds for roughly (w/σ)² intervals, so over a horizon
- * the time inside falls away as the band narrows. Clamped to [0,1] because it
- * is an estimate, not a probability derived from first principles.
- */
-export function timeInRange(halfWidth: number, volatility: number, horizon = 240) {
-  if (volatility <= 0) return 1;
-  if (halfWidth <= 0) return 0;
-  const sigmas = halfWidth / (volatility * Math.sqrt(horizon));
-  // 1.25σ measured ~91% in range; scale that relationship and clamp.
-  return Math.min(1, Math.max(0, 1 - Math.exp(-1.9 * sigmas)));
-}
-
-/**
  * Price a DLMM position, in the same units evaluateEntry returns for a v3 band
  * so the two can be compared directly.
+ *
+ * Fees are summed over where the price actually spends its time rather than
+ * assumed uniform: at each bin, the share of that bin's liquidity we hold,
+ * weighted by how often the price is there.
  */
 export function evaluateDlmm(
   inputs: DlmmInputs,
   intervalsPerYear = 525_600,
 ): DlmmVerdict {
   const halfWidth = binHalfWidth(inputs.binCount, inputs.binStep);
-  const inRange = timeInRange(halfWidth, inputs.volatility);
+  const weights = binWeights(inputs.shape, inputs.binCount);
+  const presence = activeBinDistribution(
+    inputs.binCount,
+    inputs.binStep,
+    inputs.volatility,
+  );
 
-  // Only the active bin earns, so the stake that matters is what sits in ONE
-  // bin — the position divided by its bin count, not the position.
-  const perBin = inputs.binCount > 0 ? inputs.deployed / inputs.binCount : 0;
-  const activeBinShare =
-    perBin + inputs.liquidityPerBin > 0
-      ? perBin / (perBin + inputs.liquidityPerBin)
-      : 0;
+  let inRange = 0;
+  let weightedShare = 0;
+  for (let i = 0; i < weights.length; i++) {
+    const here = presence[i] ?? 0;
+    const ourStake = inputs.deployed * weights[i];
+    const share =
+      ourStake + inputs.liquidityPerBin > 0
+        ? ourStake / (ourStake + inputs.liquidityPerBin)
+        : 0;
+    inRange += here;
+    weightedShare += here * share;
+  }
+  inRange = Math.min(1, inRange);
+  const effectiveShare = inRange > 0 ? weightedShare / inRange : 0;
 
   const feeIncome =
     inputs.volume *
     (inputs.feeBps / 10_000) *
-    activeBinShare *
-    inRange *
+    weightedShare *
     inputs.captureEfficiency;
 
   const feeRate = inputs.deployed > 0 ? feeIncome / inputs.deployed : 0;
@@ -127,7 +193,7 @@ export function evaluateDlmm(
 
   return {
     halfWidth,
-    activeBinShare,
+    effectiveShare,
     timeInRange: inRange,
     feeRate,
     bleedRate,
@@ -141,20 +207,73 @@ export function evaluateDlmm(
 }
 
 /**
- * The bin count with the best net rate, searched rather than assumed.
+ * The shape and width with the best net rate, searched rather than assumed.
  *
- * Narrow concentrates the stake in the active bin; wide keeps the price inside
- * more often. Neither wins everywhere, and on DLMM the trade is much sharper
- * than on v3 because width divides the earning stake directly.
+ * Narrow concentrates the stake in the earning bin; wide keeps the price inside
+ * more often. On DLMM the trade is much sharper than on v3, because width
+ * divides the earning stake directly rather than spreading an earning range.
  */
-export function bestBinCount(
-  inputs: Omit<DlmmInputs, "binCount">,
-  candidates = [1, 3, 5, 9, 15, 25, 41, 69],
-): { binCount: number; verdict: DlmmVerdict } {
-  let best = { binCount: candidates[0], verdict: evaluateDlmm({ ...inputs, binCount: candidates[0] }) };
-  for (const binCount of candidates.slice(1)) {
-    const verdict = evaluateDlmm({ ...inputs, binCount });
-    if (verdict.netRate > best.verdict.netRate) best = { binCount, verdict };
+export function bestConfiguration(
+  inputs: Omit<DlmmInputs, "binCount" | "shape">,
+  binCounts = [1, 3, 5, 9, 15, 25, 41, 69],
+  shapes: LiquidityShape[] = ["spot", "curve", "bid-ask"],
+): { binCount: number; shape: LiquidityShape; verdict: DlmmVerdict } {
+  let best: { binCount: number; shape: LiquidityShape; verdict: DlmmVerdict } | null =
+    null;
+  for (const shape of shapes) {
+    for (const binCount of binCounts) {
+      const verdict = evaluateDlmm({ ...inputs, binCount, shape });
+      if (!best || verdict.netRate > best.verdict.netRate) {
+        best = { binCount, shape, verdict };
+      }
+    }
   }
-  return best;
+  return best!;
+}
+
+export type SizingConfig = {
+  /** Capital at the reference market cap. */
+  baseCapital: number;
+  /** The market cap that base sizing is calibrated to, in quote units. */
+  referenceMarketCap: number;
+  /** Bins at the reference market cap. */
+  baseBinCount: number;
+  minCapital: number;
+  maxBinCount: number;
+};
+
+export const DEFAULT_SIZING: SizingConfig = {
+  baseCapital: 10_000,
+  referenceMarketCap: 10_000_000,
+  baseBinCount: 15,
+  minCapital: 250,
+  maxBinCount: 69,
+};
+
+/**
+ * Size and width from market cap: smaller and wider as the cap falls.
+ *
+ * Both legs move for the same reason. A thin book cannot absorb a large
+ * position without the position becoming the book, and the same thinness means
+ * price travels further per unit of flow — so the range has to cover more
+ * ground to stay in range at all. Scaling with the square root keeps the
+ * adjustment gradual rather than falling off a cliff between one coin and the
+ * next.
+ */
+export function sizeForMarketCap(
+  marketCap: number,
+  config: SizingConfig = DEFAULT_SIZING,
+): { capital: number; binCount: number } {
+  if (marketCap <= 0) return { capital: 0, binCount: config.maxBinCount };
+
+  const ratio = marketCap / config.referenceMarketCap;
+  const scale = Math.sqrt(Math.min(1, ratio));
+
+  const capital = Math.max(config.minCapital, config.baseCapital * scale);
+  const binCount = Math.min(
+    config.maxBinCount,
+    Math.round(config.baseBinCount / Math.max(0.2, scale)),
+  );
+
+  return { capital, binCount };
 }
