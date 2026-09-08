@@ -60,11 +60,30 @@ as `evaluateEntry`, which is what lets the two chains be compared at all.
 
 **Bridging changes the security model categorically.** Every guarantee the vault
 makes is an EVM guarantee — the venue allowlist, spender-gated approvals, the
-distribution rate limit. None of it reaches across a bridge. Today a compromised
-keeper can shuffle assets between approved venues; a keeper that can bridge can
-send them to a chain where the contract has no authority at all. Before this
-ships, the contract needs a per-destination cap and a rate limit on bridged
-value, so the exposure is bounded by policy rather than by trusting the keeper.
+distribution rate limit. None of it reaches across a bridge. A keeper that can
+bridge can send funds to a chain where the contract has no authority at all.
+
+The contract now bounds that by policy rather than by trust. `bridgeOut` is a
+separate entry point from `exec` — deliberately, so the cap cannot be bypassed
+by encoding a bridge call as a venue call — and it enforces a per-destination
+rolling cap, kept apart from the distribution limit so bridging can never eat
+the holders' payout window.
+
+Opening a route is **two owner transactions, and the order matters**:
+
+```solidity
+vault.setBridge(bridgeAddress, true);          // allow it
+vault.setBridgeCap(bridgeAddress, 50_000e6);   // and only then, fund the cap
+```
+
+The cap defaults to zero, so an allowlisted bridge with no cap moves nothing.
+That is the mechanism, not an oversight: a single mis-click cannot open a route.
+Set the cap to what you would accept losing in a window, not to what the vault
+holds. `bridgeLimitRemaining(bridge)` reads the headroom.
+
+Ten tests cover the envelope under sequences a compromised keeper would try —
+splitting a transfer to get past the cap, spending one bridge's allowance
+through another, and using a revoked bridge.
 
 The allocator takes a bridge's fee, fixed cost and latency as plain numbers
 (`BridgeCost`), so whatever moves the funds — existing perp infrastructure, a

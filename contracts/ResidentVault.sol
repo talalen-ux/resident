@@ -96,6 +96,25 @@ contract ResidentVault {
 
     mapping(address => Limit) private _limits;
 
+    // --- bridging ----------------------------------------------------------
+
+    /**
+     * Bridges the keeper may send through, and how much it may send.
+     *
+     * Kept apart from the venue allowlist on purpose. A venue is somewhere the
+     * vault trades and the assets come straight back; a bridge is somewhere the
+     * assets LEAVE, to a chain where none of this contract's guarantees apply —
+     * no allowlist, no owed-balance check, no rate limit. Once value crosses,
+     * this contract cannot see it or recall it.
+     *
+     * So bridging carries its own cap and its own rolling window, and the cap
+     * is per destination rather than global: the point is that a compromised
+     * keeper's reach is bounded by policy set in advance, not by how much the
+     * vault happens to hold at the time.
+     */
+    mapping(address => bool) public isBridge;
+    mapping(address => Limit) private _bridgeLimits;
+
     // --- events ------------------------------------------------------------
 
     event KeeperRotated(address indexed from, address indexed to);
@@ -107,6 +126,9 @@ contract ResidentVault {
     event Distributed(uint256 total, uint256 recipients);
     event Executed(address indexed venue, uint256 value, bytes4 selector);
     event Withdrawn(address indexed asset, address indexed to, uint256 amount);
+    event BridgeSet(address indexed bridge, bool allowed);
+    event BridgeCapSet(address indexed bridge, uint256 cap);
+    event Bridged(address indexed bridge, address indexed asset, uint256 amount, string destination);
     event PositionReceived(address indexed collection, uint256 indexed tokenId);
 
     // --- errors ------------------------------------------------------------
@@ -123,6 +145,8 @@ contract ResidentVault {
     error ZeroAddress();
     error CallFailed(bytes returndata);
     error UnexpectedPosition(address collection);
+    error BridgeNotAllowed(address bridge);
+    error ExceedsBridgeLimit(uint256 requested, uint256 remaining);
 
     // --- modifiers ---------------------------------------------------------
 
@@ -194,6 +218,61 @@ contract ResidentVault {
     }
 
     /// @notice Set the rolling per-window distribution cap for an asset.
+    /// @notice Allow or forbid a bridge. Owner only; the keeper cannot add one.
+    function setBridge(address bridge, bool allowed) external onlyOwner {
+        if (bridge == address(0)) revert ZeroAddress();
+        isBridge[bridge] = allowed;
+        emit BridgeSet(bridge, allowed);
+    }
+
+    /**
+     * @notice Cap the value that may cross a given bridge per rolling window.
+     * @dev A bridge with no cap set cannot be used at all: the default is zero,
+     *      so allowing a bridge is two deliberate transactions rather than one.
+     *      Failing closed here is the whole point of the mechanism.
+     */
+    function setBridgeCap(address bridge, uint128 cap) external onlyOwner {
+        Limit storage l = _bridgeLimits[bridge];
+        l.used = uint128(_usedNow(l));
+        l.updatedAt = uint64(block.timestamp);
+        l.cap = cap;
+        emit BridgeCapSet(bridge, cap);
+    }
+
+    /// @notice Value still bridgeable through this bridge in the current window.
+    function bridgeLimitRemaining(address bridge) public view returns (uint256) {
+        Limit storage l = _bridgeLimits[bridge];
+        uint256 used = _usedNow(l);
+        return l.cap > used ? l.cap - used : 0;
+    }
+
+    /**
+     * @notice Send assets across an allowlisted bridge, within its cap.
+     * @dev Deliberately NOT routed through exec(). exec is for venues that hand
+     *      the assets back inside the same transaction; this hands them to
+     *      another chain. Giving it its own entry point means the cap cannot be
+     *      bypassed by encoding a bridge call as a venue call, and every
+     *      crossing is a distinct event in the log rather than one more
+     *      indistinguishable exec.
+     */
+    function bridgeOut(address bridge, address asset, uint256 amount, string calldata destination)
+        external
+        onlyKeeper
+    {
+        if (!isBridge[bridge]) revert BridgeNotAllowed(bridge);
+
+        Limit storage l = _bridgeLimits[bridge];
+        uint256 used = _usedNow(l);
+        uint256 remaining = l.cap > used ? l.cap - used : 0;
+        if (amount > remaining) revert ExceedsBridgeLimit(amount, remaining);
+
+        l.used = uint128(used + amount);
+        l.updatedAt = uint64(block.timestamp);
+
+        emit Bridged(bridge, asset, amount, destination);
+        if (!IERC20(asset).transfer(bridge, amount)) revert CallFailed("");
+    }
+
     function setCap(address asset, uint128 cap) external onlyOwner {
         Limit storage l = _limits[asset];
         l.used = uint128(_usedNow(l));

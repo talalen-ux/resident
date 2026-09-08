@@ -368,3 +368,150 @@ test("band capital reaches a position manager through the allowlist", async () =
   assert.equal(res.ok, true);
   assert.equal(await chain.read(usdg, "allowance", [vault.hex, manager.hex]), 10_000n * USDG);
 });
+
+// --- bridging ----------------------------------------------------------------
+
+/**
+ * Bridging is the one operation that puts value beyond every guarantee this
+ * contract makes. There is no allowlist on the far chain, no owed check, no
+ * recall. So the tests here are about the envelope holding under sequences a
+ * compromised keeper would actually try, not about the happy path.
+ */
+
+test("a bridge must be allowlisted before anything crosses", async () => {
+  const { chain, keeper, usdg, vault, outsider } = await fixture();
+  const res = await chain.call(
+    vault, "bridgeOut", [outsider.hex, usdg.hex, 1n * USDG, "solana"], { from: keeper },
+  );
+  assert.equal(res.ok, false);
+  assert.equal(res.error, "BridgeNotAllowed");
+});
+
+test("an allowlisted bridge with no cap set can still move nothing", async () => {
+  const { chain, deployer, keeper, usdg, vault, outsider } = await fixture();
+  await chain.call(vault, "setBridge", [outsider.hex, true], { from: deployer });
+  // Allowing is one transaction, funding the cap is another. The default is
+  // zero so a single mis-click cannot open a route.
+  assert.equal(await chain.read(vault, "bridgeLimitRemaining", [outsider.hex]), 0n);
+  const res = await chain.call(
+    vault, "bridgeOut", [outsider.hex, usdg.hex, 1n * USDG, "solana"], { from: keeper },
+  );
+  assert.equal(res.ok, false);
+  assert.equal(res.error, "ExceedsBridgeLimit");
+});
+
+test("the keeper cannot allowlist a bridge for itself", async () => {
+  const { chain, keeper, vault, outsider } = await fixture();
+  const res = await chain.call(vault, "setBridge", [outsider.hex, true], { from: keeper });
+  assert.equal(res.ok, false);
+  assert.equal(res.error, "NotOwner");
+});
+
+test("bridging within the cap moves the assets and books the usage", async () => {
+  const { chain, deployer, keeper, usdg, vault, outsider } = await fixture();
+  await chain.call(vault, "setBridge", [outsider.hex, true], { from: deployer });
+  await chain.call(vault, "setBridgeCap", [outsider.hex, 1000n * USDG], {
+    from: deployer,
+  });
+
+  await chain.call(vault, "bridgeOut", [outsider.hex, usdg.hex, 400n * USDG, "solana"], {
+    from: keeper,
+  });
+
+  assert.equal(await chain.read(usdg, "balanceOf", [outsider.hex]), 400n * USDG);
+  assert.equal(
+    await chain.read(vault, "bridgeLimitRemaining", [outsider.hex]),
+    600n * USDG,
+  );
+});
+
+test("the cap cannot be exceeded, in one go or by splitting", async () => {
+  const { chain, deployer, keeper, usdg, vault, outsider } = await fixture();
+  await chain.call(vault, "setBridge", [outsider.hex, true], { from: deployer });
+  await chain.call(vault, "setBridgeCap", [outsider.hex, 1000n * USDG], {
+    from: deployer,
+  });
+
+  const oversized = await chain.call(
+    vault, "bridgeOut", [outsider.hex, usdg.hex, 1001n * USDG, "solana"], { from: keeper },
+  );
+  assert.equal(oversized.ok, false, "one oversized crossing");
+  assert.equal(oversized.error, "ExceedsBridgeLimit");
+
+  // Drain it in pieces, then try to take one more unit.
+  for (let i = 0; i < 5; i++) {
+    await chain.call(vault, "bridgeOut", [outsider.hex, usdg.hex, 200n * USDG, "solana"], {
+      from: keeper,
+    });
+  }
+  assert.equal(await chain.read(vault, "bridgeLimitRemaining", [outsider.hex]), 0n);
+  const split = await chain.call(
+    vault, "bridgeOut", [outsider.hex, usdg.hex, 1n * USDG, "solana"], { from: keeper },
+  );
+  assert.equal(split.ok, false, "splitting must not get past the same cap");
+  assert.equal(split.error, "ExceedsBridgeLimit");
+});
+
+test("the bridge cap is separate from the distribution cap", async () => {
+  const { chain, deployer, keeper, usdg, vault, outsider } = await fixture();
+  await chain.call(vault, "setBridge", [outsider.hex, true], { from: deployer });
+  await chain.call(vault, "setBridgeCap", [outsider.hex, 500n * USDG], {
+    from: deployer,
+  });
+
+  await chain.call(vault, "bridgeOut", [outsider.hex, usdg.hex, 500n * USDG, "solana"], {
+    from: keeper,
+  });
+
+  // Bridging to exhaustion must not have consumed the holders' payout window.
+  assert.equal(await chain.read(vault, "rateLimitRemaining", [usdg.hex]), CAP);
+});
+
+test("each bridge has its own cap, so one does not spend another's", async () => {
+  const { chain, deployer, keeper, usdg, vault, outsider, holderA } = await fixture();
+  for (const b of [outsider, holderA]) {
+    await chain.call(vault, "setBridge", [b.hex, true], { from: deployer });
+    await chain.call(vault, "setBridgeCap", [b.hex, 300n * USDG], { from: deployer });
+  }
+
+  await chain.call(vault, "bridgeOut", [outsider.hex, usdg.hex, 300n * USDG, "solana"], {
+    from: keeper,
+  });
+
+  assert.equal(await chain.read(vault, "bridgeLimitRemaining", [outsider.hex]), 0n);
+  assert.equal(await chain.read(vault, "bridgeLimitRemaining", [holderA.hex]), 300n * USDG);
+});
+
+test("revoking a bridge stops it immediately, cap or no cap", async () => {
+  const { chain, deployer, keeper, usdg, vault, outsider } = await fixture();
+  await chain.call(vault, "setBridge", [outsider.hex, true], { from: deployer });
+  await chain.call(vault, "setBridgeCap", [outsider.hex, 1000n * USDG], {
+    from: deployer,
+  });
+  await chain.call(vault, "setBridge", [outsider.hex, false], { from: deployer });
+
+  const res = await chain.call(
+    vault, "bridgeOut", [outsider.hex, usdg.hex, 1n * USDG, "solana"], { from: keeper },
+  );
+  assert.equal(res.ok, false);
+  assert.equal(res.error, "BridgeNotAllowed");
+});
+
+test("bridged value is not booked as profit or as a distribution", async () => {
+  const { chain, deployer, keeper, usdg, vault, outsider } = await fixture();
+  await chain.call(vault, "setBridge", [outsider.hex, true], { from: deployer });
+  await chain.call(vault, "setBridgeCap", [outsider.hex, 1000n * USDG], {
+    from: deployer,
+  });
+  await chain.call(vault, "recordRealized", [1000n * USDG], { from: keeper });
+
+  const owedBefore = await chain.read(vault, "owed", []);
+  await chain.call(vault, "bridgeOut", [outsider.hex, usdg.hex, 500n * USDG, "solana"], {
+    from: keeper,
+  });
+
+  // Moving capital is not earning it and not paying it out. Holders' claim is
+  // untouched by where the working capital happens to be sitting.
+  assert.equal(await chain.read(vault, "owed", []), owedBefore);
+  assert.equal(await chain.read(vault, "distributed", []), 0n);
+});
