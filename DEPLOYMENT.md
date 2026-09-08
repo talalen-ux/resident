@@ -5,7 +5,7 @@ touched a live chain.
 
 ## What has actually been verified
 
-`contracts/ResidentVault.sol` compiles under solc 0.8.28 and passes 25 tests on
+`contracts/ResidentVault.sol` compiles under solc 0.8.28 and passes 30 tests on
 a real EVM (`npm run test:contracts`), one per property the site claims. That is
 unit-level assurance against a local VM. It is **not**:
 

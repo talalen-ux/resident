@@ -1,0 +1,137 @@
+# Handover
+
+For the engineer taking this to mainnet. Read this before deploying anything.
+
+The short version: **the vault contract is ready to be tested. The thing that
+would drive it does not exist yet.** Nothing in this repository has ever touched
+a live chain, signed a transaction, or held a key.
+
+## What is in the box
+
+| Component | Path | State |
+|---|---|---|
+| Custody contract | `contracts/ResidentVault.sol` | Complete, 30 tests on a local EVM, **unaudited** |
+| Strategy math | `src/lib/sim/` | Complete and tested (122 tests), **pure functions — decides nothing on its own** |
+| Chain constants | `src/lib/chain.ts` | Transcribed from official sources, **never checked against the chain** |
+| Token registry | `src/lib/tokens.ts` | 194 canonical tokens, checksums verified, addresses not read on-chain |
+| Read-only adapters | `src/lib/desk/` | Reads vault state over JSON-RPC. Reads only |
+| Site + dashboards | `src/app/` | Runs on fixtures until a vault is configured, and says so on screen |
+| Chain verifier | `scripts/verify-chain.mjs` | **Run this first.** See below |
+
+## What does not exist
+
+There is no keeper. Nothing in this repository:
+
+- opens, re-centres or closes a liquidity position,
+- calls `recordRealized`, `absorbLoss`, `distribute`, or `exec`,
+- signs or sends any transaction,
+- holds or reads a private key.
+
+`grep -rn "recordRealized\|distribute(" src/ scripts/` returns only prose in the
+docs copy. The vault is a safe with a well-tested lock and no operator. Writing
+that operator — the loop that reads the opportunity board, applies
+`evaluateEntry`, mints the position through the v4 position manager, tracks it,
+and reports profit back to the vault — is the work between here and a running
+desk. Budget for it as a real project, not a wiring exercise.
+
+Two dependencies that operator needs and does not have:
+
+1. **An indexer.** Pool selection needs per-pool volume windows and LP event
+   history. An RPC alone cannot serve these at usable speed. `INTEGRATIONS.md`
+   names the interface (`PoolsSource`, `HistorySource`); both currently have
+   fixture implementations only.
+2. **A reference price feed.** `RESIDENT_REFERENCE_API_URL` in `.env.example`
+   is unset and there is no client for it.
+
+## Order of operations
+
+Do not reorder these. Each one can invalidate the next.
+
+**1. Verify the chain constants.**
+
+```bash
+RESIDENT_RPC_URL=https://rpc.mainnet.chain.robinhood.com \
+  node --experimental-strip-types scripts/verify-chain.mjs
+```
+
+Every address in `src/lib/chain.ts` was transcribed from published sources and
+fetched twice to rule out transcription error. That proves the characters are
+right. It does **not** prove the address holds the contract it is labelled with,
+because the environment this was built in blocks the Robinhood Chain RPC. This
+script checks the chain id, confirms every address has bytecode, and reads
+USDG's symbol and decimals back. If it disagrees with the file, trust the chain.
+
+**2. Pin `evmVersion` to what the chain supports.**
+
+`test/harness.mjs` sets `shanghai`. solc's default is newer than some chains
+accept, and a mismatch produces bytecode that reverts with `invalid opcode` on
+deploy — that is exactly how it failed here before it was pinned. Confirm what
+Robinhood Chain supports before compiling for deployment.
+
+**3. Fork-test against real venues.** Neither Hardhat nor Foundry could run
+here (both fetch a compiler from a blocked host), so the suite compiles with the
+npm `solc` package and executes on `@ethereumjs/vm`. Real EVM semantics, no
+network. Point Anvil at an archive RPC and exercise `exec` against the actual
+Uniswap v3/v4 routers, with real tokens, at a real block.
+
+**4. Test the tokens you will actually hold.** The suite uses a well-behaved
+ERC20. Tokenized equities may rebase on corporate actions, may charge fees on
+transfer, and may pause. Each of those changes the accounting, and the vault's
+ledger assumes none of them.
+
+**5. Testnet, with the keeper, for a full cycle.** Chain 46630. Run until you
+have seen a distribution, a rate-limit refusal, and a keeper rotation.
+
+**6. Audit** — specifically the profit ledger and the distribution envelope.
+Those are what stand between a keeper bug and holder funds.
+
+**7. Mainnet with a cap you are willing to lose.** Raise it only after the desk
+has run.
+
+## Custody, before anyone funds this
+
+`withdraw()` lets the vault owner move any asset out at any time. No timelock,
+no governance, no delay. The keeper cannot — it is restricted to allowlisted
+venues and to distributions — but the owner key is a single point of total
+loss. This is deliberate and documented at `/docs`, not an oversight. Decide who
+holds that key, and on what hardware, before the vault holds anything.
+
+The keeper key is separate and rotatable in one transaction (`rotateKeeper`),
+so treat the keeper as compromisable and the owner as not.
+
+## What the tests do and do not cover
+
+`npm test` runs 30 contract tests and 122 simulation tests.
+
+Covered: the ledger identity under every ordering of report/absorb/distribute,
+the 15/85 split, monotonicity, the rate limiter across window boundaries, the
+venue allowlist and the forbidden-selector list, the exact Uniswap v3 swap math
+against closed-form results, tick crossing, v4 pool id derivation and sign
+extension, and the ABI selectors (7 of 8 were hand-written wrong once — hence
+`test/selectors.test.mjs`).
+
+Not covered: anything adversarial, anything with a real counterparty, reorgs,
+MEV, sandwiching, malicious or fee-on-transfer tokens, reentrant venues, gas
+under load. A local EVM cannot produce any of it.
+
+## Numbers on the site are ceilings, not results
+
+Every fee projection runs at capture efficiency 1 — the naive
+`volume × fee × share`, which credits a position with every fee paid at every
+price it covers. Measured against a route-level simulation the realised figure
+came in far below that. `captureEfficiency` in `src/lib/sim/backtest.ts` is the
+knob; set it from your own fills once you have them. Until then, read every
+projected number as an upper bound.
+
+## Running it
+
+```bash
+npm install
+npm test          # 30 contract + 122 sim
+npm run dev       # site on :3000, dashboards on fixtures
+npm run backtest  # constructed scenarios through the band policy
+npm run simulate  # the gates against a simulated pool
+```
+
+`DEPLOYMENT.md` has the fork-test commands. `INTEGRATIONS.md` has the
+integration interfaces and what each one still needs.
