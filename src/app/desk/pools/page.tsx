@@ -5,7 +5,7 @@ import { Chip, Panel } from "@/components/desk/Panel";
 import { AlertCard } from "@/components/desk/PoolsBoard";
 import { Mark } from "@/components/ui/Logo";
 import { missingKeys } from "@/lib/chain";
-import { FixturePoolsSource, loadBoard } from "@/lib/desk/pools-adapter";
+import { getPoolsSource, loadBoard } from "@/lib/desk/pools-adapter";
 import { timeAgo } from "@/lib/desk";
 
 export const metadata = {
@@ -18,7 +18,7 @@ export const metadata = {
 export const dynamic = "force-dynamic";
 
 export default async function PoolsPage() {
-  const board = await loadBoard(new FixturePoolsSource());
+  const board = await loadBoard(await getPoolsSource());
   const missing = missingKeys();
 
   return (

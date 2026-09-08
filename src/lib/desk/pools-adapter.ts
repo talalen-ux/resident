@@ -86,3 +86,31 @@ export async function loadBoard(
   const observations = await source.observe();
   return { ...buildBoard(observations, config), isFixture: source.isFixture };
 }
+
+/**
+ * The source the board should use, chosen from the environment.
+ *
+ * Live reads need an RPC and a watchlist, because v4 pools are addressed by a
+ * key rather than discoverable from an address. RESIDENT_WATCHED_POOLS is a
+ * JSON array of { key, token0, token1 } — see WatchedPool. With either missing
+ * the board runs on fixtures and says so on screen.
+ */
+export async function getPoolsSource(
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<PoolsSource> {
+  const rpcUrl = env.NEXT_PUBLIC_RPC_URL ?? env.RESIDENT_RPC_URL;
+  const watchlist = env.RESIDENT_WATCHED_POOLS;
+  if (!rpcUrl || !watchlist) return new FixturePoolsSource();
+
+  try {
+    const pools = JSON.parse(watchlist);
+    if (!Array.isArray(pools) || pools.length === 0) return new FixturePoolsSource();
+    const { RpcPoolsSource } = await import("./rpc-pools-source.ts");
+    return new RpcPoolsSource(rpcUrl, pools);
+  } catch (error) {
+    // A malformed watchlist must not silently look like a quiet market. Fall
+    // back to fixtures, which the UI labels, and say why in the log.
+    console.error("RESIDENT_WATCHED_POOLS is not valid JSON:", error);
+    return new FixturePoolsSource();
+  }
+}
