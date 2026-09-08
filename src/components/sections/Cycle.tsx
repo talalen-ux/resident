@@ -11,7 +11,7 @@ export function Cycle() {
       <div className="flex items-center gap-6 pb-16">
         <span className="type-eyebrow text-brand-primary">./</span>
         <h2 className="type-eyebrow text-text-primary">
-          How fee flow becomes a distribution
+          Capital flow
         </h2>
       </div>
 

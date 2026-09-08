@@ -10,7 +10,7 @@ export function LpDesk() {
       <div className="flex flex-col gap-12 lg:flex-row">
         <div className="flex shrink-0 items-start gap-6 lg:w-[276px]">
           <span className="type-label text-brand-primary">#</span>
-          <h2 className="type-label text-text-primary">The two shapes</h2>
+          <h2 className="type-label text-text-primary">Range placement</h2>
         </div>
         <div className="flex flex-1 flex-col gap-16">
           <p className="type-h3 max-w-[708px] text-text-primary">

@@ -13,7 +13,7 @@ export function Parameters() {
             aria-hidden
             className="size-4 shrink-0 rounded-full bg-brand-primary"
           />
-          <h2 className="type-eyebrow text-text-primary">The settings</h2>
+          <h2 className="type-eyebrow text-text-primary">Protocol parameters</h2>
         </div>
 
         <div className="flex flex-1 flex-col gap-10">
