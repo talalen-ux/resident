@@ -23,8 +23,18 @@ import {
   bestConfiguration,
   sizeForMarketCap,
   type LiquidityShape,
+  type PositionSide,
   type SizingConfig,
 } from "./dlmm.ts";
+import {
+  DEFAULT_REBALANCE,
+  rangingScore,
+  shouldRebalance,
+  type OpenPosition,
+  type RebalanceConfig,
+  type RebalanceCost,
+  type RebalanceVerdict,
+} from "./rebalance.ts";
 import {
   DEFAULT_ALLOCATION,
   bestMove,
@@ -44,6 +54,14 @@ export type ScannedPool = {
   volatility: number;
   /** Market cap in quote units, for sizing. Optional. */
   marketCap?: number;
+  /**
+   * Recent price history, oldest first, for the ranging gate.
+   *
+   * Optional, and its absence is not treated as a pass: a pool with no history
+   * cannot be shown to have held a band, and the gate says so rather than
+   * assuming the best. See ScanConfig.requireRanging.
+   */
+  prices?: number[];
 } & (
   | {
       kind: "band";
@@ -57,6 +75,16 @@ export type ScannedPool = {
       feeBps: number;
       /** Quote liquidity in a typical bin. */
       liquidityPerBin: number;
+      /**
+       * True for a token we are not willing to hold.
+       *
+       * Restricts the search to ladders placed below the price, which hold only
+       * quote until the market comes down to them. It is a stance on the token,
+       * not something the model should discover: a search allowed to pick
+       * either side will straddle whenever straddling scores better, which on a
+       * token that can go to zero is exactly the position we are refusing.
+       */
+      quoteOnly?: boolean;
     }
 );
 
@@ -67,9 +95,16 @@ export type ScanResult = {
   capital: number;
   netRate: number;
   netApr: number;
-  /** DLMM only: the width and shape that won the search. */
+  /** DLMM only: the width, shape and side that won the search. */
   binCount?: number;
   shape?: LiquidityShape;
+  side?: PositionSide;
+  /** How the pool scored on holding a band, or null when it has no history. */
+  ranging: { containment: number; drift: number; ranging: boolean } | null;
+  /** False when the board should not open here, whatever the rate says. */
+  eligible: boolean;
+  /** Why it is not eligible, when it is not. */
+  blockedBy: string | null;
   reason: string;
 };
 
@@ -79,6 +114,18 @@ export type ScanConfig = {
   allocation: AllocationConfig;
   /** Assumed fraction of the naive fee estimate actually captured. */
   captureEfficiency: number;
+  /**
+   * Refuse to open into a pool that has not been shown to range.
+   *
+   * On by default. Fee rate alone ranks a token mid-collapse at the top of the
+   * board — volume is enormous on the way down — and liquidity is only worth
+   * providing where the price keeps coming back.
+   */
+  requireRanging: boolean;
+  /** Band half-width the ranging test measures containment against. */
+  rangingHalfWidth: number;
+  /** How positions already open are judged for re-centring. */
+  rebalance: RebalanceConfig;
 };
 
 export const DEFAULT_SCAN: ScanConfig = {
@@ -87,6 +134,9 @@ export const DEFAULT_SCAN: ScanConfig = {
   allocation: DEFAULT_ALLOCATION,
   // An upper bound, not a fitted value. See BandConfig.captureEfficiency.
   captureEfficiency: 1,
+  requireRanging: true,
+  rangingHalfWidth: 0.35,
+  rebalance: DEFAULT_REBALANCE,
 };
 
 /**
@@ -112,6 +162,22 @@ export function pricePool(
     ? sizeForMarketCap(pool.marketCap, config.sizing)
     : { capital: config.sizing.baseCapital };
 
+  const ranging = pool.prices
+    ? rangingScore(pool.prices, config.rangingHalfWidth)
+    : null;
+
+  let blockedBy: string | null = null;
+  if (config.requireRanging) {
+    if (!ranging) {
+      blockedBy = "no price history to test whether it ranges";
+    } else if (!ranging.ranging) {
+      blockedBy =
+        `trending: ${(ranging.containment * 100).toFixed(0)}% inside the band, ` +
+        `${(ranging.drift * 100).toFixed(0)}% drift`;
+    }
+  }
+  const eligible = blockedBy === null;
+
   if (pool.kind === "band") {
     const verdict = evaluateEntry(
       {
@@ -130,19 +196,27 @@ export function pricePool(
       capital,
       netRate: verdict.netRate,
       netApr: verdict.netApr,
+      ranging,
+      eligible,
+      blockedBy,
       reason: verdict.reason,
     };
   }
 
-  const { binCount, shape, verdict } = bestConfiguration({
-    volume: pool.volume,
-    feeBps: pool.feeBps,
-    binStep: pool.binStep,
-    deployed: capital,
-    liquidityPerBin: pool.liquidityPerBin,
-    volatility: pool.volatility,
-    captureEfficiency: config.captureEfficiency,
-  });
+  const { binCount, shape, side, verdict } = bestConfiguration(
+    {
+      volume: pool.volume,
+      feeBps: pool.feeBps,
+      binStep: pool.binStep,
+      deployed: capital,
+      liquidityPerBin: pool.liquidityPerBin,
+      volatility: pool.volatility,
+      captureEfficiency: config.captureEfficiency,
+    },
+    undefined,
+    undefined,
+    pool.quoteOnly ? ["quote"] : ["both"],
+  );
 
   return {
     pool,
@@ -152,6 +226,10 @@ export function pricePool(
     netApr: verdict.netApr,
     binCount,
     shape,
+    side,
+    ranging,
+    eligible,
+    blockedBy,
     reason: verdict.reason,
   };
 }
@@ -194,10 +272,14 @@ export function scan(
 
   ranked.sort((a, b) => b.netRate - a.netRate);
 
+  // Only eligible venues are candidates. A trending pool at the top of the
+  // board is exactly the move the allocator must not make, and filtering here
+  // rather than inside bestMove keeps the ranking honest: the pool still
+  // appears, with the reason it was passed over.
   const move = current
     ? bestMove(
         current,
-        ranked.map((r) => r.venue),
+        ranked.filter((r) => r.eligible).map((r) => r.venue),
         capital,
         bridges,
         config.allocation,
@@ -205,4 +287,35 @@ export function scan(
     : null;
 
   return { ranked, skipped, move };
+}
+
+/**
+ * What to do about the positions already open.
+ *
+ * The ranking answers "where should capital be". This answers the question that
+ * comes first and is easier to forget: a position we already hold may have
+ * drifted off the price and quietly stopped earning, and re-centring it on the
+ * same pool can beat anything on the board without a bridge, a new pool, or a
+ * decision about a token we have not held before.
+ *
+ * A position whose pool is no longer in the scan gets no verdict rather than a
+ * default one — we cannot say what a fresh position there would earn, and
+ * inventing a number would argue for churning it.
+ */
+export function reviewPositions(
+  open: OpenPosition[],
+  ranked: ScanResult[],
+  cost: RebalanceCost,
+  config: ScanConfig = DEFAULT_SCAN,
+): { position: OpenPosition; verdict: RebalanceVerdict | null }[] {
+  const byPool = new Map(ranked.map((r) => [r.pool.name, r]));
+  return open.map((position) => {
+    const fresh = byPool.get(position.name);
+    return {
+      position,
+      verdict: fresh
+        ? shouldRebalance(position, fresh.netRate, cost, config.rebalance)
+        : null,
+    };
+  });
 }

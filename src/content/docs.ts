@@ -298,6 +298,18 @@ export const PARAMETERS = [
   { meaning: "Loss that closes a position", value: "35% of what went in" },
   { meaning: "Holders' share of profit", value: "15%" },
   { meaning: "Minimum before a payout runs", value: "$300 owed" },
+  { meaning: "Fees are collected once they reach", value: "$100" },
+  { meaning: "Or after this long uncollected", value: "15 minutes" },
+  { meaning: "Readings under the floor before a position is retired", value: "10" },
+  { meaning: "Held back so the desk can always pay for gas", value: "$250" },
+  { meaning: "Smallest position on a small-cap pool", value: "$250" },
+  { meaning: "Widest a Solana position is spread", value: "69 bins" },
+  { meaning: "A cross-chain edge is assumed to last", value: "12 hours" },
+  { meaning: "A cross-chain move must be worth", value: "1.5x its cost" },
+  { meaning: "Smallest amount worth moving between chains", value: "$2,500" },
+  { meaning: "Re-centring must be worth", value: "2x its cost" },
+  { meaning: "A pool counts as ranging if it held", value: "±35%" },
+  { meaning: "for at least this much of its history", value: "80%" },
 ] as const;
 
 export const CADENCES = [

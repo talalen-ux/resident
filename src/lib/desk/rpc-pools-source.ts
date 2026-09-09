@@ -176,6 +176,9 @@ export class RpcPoolsSource implements PoolsSource {
 
       const volume: VolumeWindows = { m5: 0, h1: 0, h6: 0, h24: 0 };
       let peakSqrt = 0n;
+      let swaps1h = 0;
+      let flow1h = 0;
+      const track: number[] = [];
 
       for (const log of logs) {
         const block = Number(BigInt(log.blockNumber));
@@ -187,8 +190,17 @@ export class RpcPoolsSource implements PoolsSource {
         if (block >= cut.h1) volume.h1 += traded;
         if (block >= cut.m5) volume.m5 += traded;
 
+        if (block >= cut.h1) {
+          swaps1h++;
+          // Sign is taken from the quote side: quote leaving the pool is the
+          // token being bought. The convention is the pool's, so this is signed
+          // the same way the pool signs it rather than the way it reads.
+          flow1h += -Number(amount1) / scale;
+        }
+
         const sqrt = BigInt(`0x${log.data.slice(2).slice(2 * 64, 3 * 64)}`);
         if (sqrt > peakSqrt) peakSqrt = sqrt;
+        track.push(priceFromSqrt(sqrt, watched));
       }
 
       observations.push({
@@ -205,6 +217,9 @@ export class RpcPoolsSource implements PoolsSource {
         smartLpNet: 0,
         smartLpPresent: 0,
         smartLpExited1h: 0,
+        prices: samplePrices(track, 120),
+        swaps1h,
+        flow1h,
       });
     }
 
@@ -230,6 +245,22 @@ export class RpcPoolsSource implements PoolsSource {
     const at = Number(BigInt(logs[0].blockNumber));
     return ((head - at) * spb) / 60;
   }
+}
+
+/**
+ * Thin a per-swap price track down to at most `count` evenly spaced points.
+ *
+ * The ranging test measures how much of the history sat inside a band, so a
+ * pool with ten thousand swaps and one with fifty must not be weighted by how
+ * heavily they traded. Even spacing in TIME is what the test wants; even
+ * spacing in swaps is what is cheap to get, and on a pool active enough to
+ * provide liquidity to the two are close. It is an approximation, and it is
+ * why the gate is a floor rather than a score.
+ */
+function samplePrices(track: number[], count: number): number[] {
+  if (track.length <= count) return track;
+  const step = track.length / count;
+  return Array.from({ length: count }, (_, i) => track[Math.floor(i * step)]);
 }
 
 /** Quote price per whole stock token, from a sqrtPriceX96. */

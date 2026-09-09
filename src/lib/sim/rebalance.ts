@@ -123,6 +123,15 @@ export function shouldRebalance(
   return { rebalance, decay, uplift, cost: totalCost, margin, reason };
 }
 
+export const RANGING_THRESHOLDS = {
+  /** Fraction of the history that must have sat inside the band. */
+  containment: 0.8,
+  /** Most the last stretch may sit away from the first. */
+  drift: 0.4,
+  /** Half-width of the band containment is measured against. */
+  bandHalfWidth: 0.35,
+};
+
 /**
  * Whether a pool has been RANGING rather than trending.
  *
@@ -140,7 +149,7 @@ export function shouldRebalance(
  */
 export function rangingScore(
   prices: number[],
-  bandHalfWidth = 0.35,
+  bandHalfWidth = RANGING_THRESHOLDS.bandHalfWidth,
 ): { containment: number; drift: number; ranging: boolean } {
   if (prices.length < 10) return { containment: 0, drift: 1, ranging: false };
 
@@ -162,6 +171,8 @@ export function rangingScore(
   return {
     containment,
     drift,
-    ranging: containment >= 0.8 && drift <= 0.4,
+    ranging:
+      containment >= RANGING_THRESHOLDS.containment &&
+      drift <= RANGING_THRESHOLDS.drift,
   };
 }

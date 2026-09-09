@@ -35,6 +35,19 @@ export type PoolObservation = {
   smartLpPresent: number;
   /** Smart wallets that left in the last hour. */
   smartLpExited1h: number;
+  /**
+   * Sampled price history over the observation window, oldest first.
+   *
+   * Optional, and absence means "not measured" rather than "flat". It feeds the
+   * ranging gate, which refuses a pool it cannot show has held a band — so an
+   * observation source that omits this makes pools ineligible rather than
+   * making them look calm.
+   */
+  prices?: number[];
+  /** Swaps counted in the last hour. */
+  swaps1h?: number;
+  /** Signed quote flow over the last hour: buys less sells, in quote units. */
+  flow1h?: number;
 };
 
 export type AlertConfig = {

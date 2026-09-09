@@ -96,6 +96,7 @@ export function activeBinDistribution(
   binStep: number,
   volatility: number,
   horizon = 240,
+  offsetBins = 0,
 ): number[] {
   const n = Math.max(1, Math.floor(binCount));
   const binWidth = binStep / 10_000;
@@ -110,8 +111,39 @@ export function activeBinDistribution(
 
   const mid = (n - 1) / 2;
   return Array.from({ length: n }, (_, i) =>
-    Math.exp(-0.5 * ((i - mid) / sigmaBins) ** 2),
+    Math.exp(-0.5 * ((i - mid + offsetBins) / sigmaBins) ** 2),
   ).map((v) => v / (sigmaBins * Math.sqrt(2 * Math.PI)) / (1 / 1));
+}
+
+/**
+ * Which side of the current price the position sits on.
+ *
+ *   both    straddles the active bin, holding base above it and quote below
+ *   quote   sits entirely BELOW the active bin, holding nothing but quote
+ *
+ * Quote-only is how a desk provides liquidity on a token it is not willing to
+ * hold. The position is a resting bid ladder: while the price stays above it,
+ * it holds only the quote asset and earns nothing, and it converts into the
+ * token only if the price comes down to it. That is the trade — you give up the
+ * fees you would have earned sitting on the price in exchange for having no
+ * exposure at all until the market comes to you.
+ *
+ * It is the right shape for a token that can go to zero and the wrong shape for
+ * a pool you actually want to farm, and the model will say so: the fee estimate
+ * collapses because the active bin is usually not one of yours.
+ */
+export type PositionSide = "both" | "quote";
+
+/**
+ * How far the position's bins sit from the active one.
+ *
+ * Zero for a straddle. For quote-only, far enough that the position's TOP bin
+ * is one below the active bin — the whole ladder underneath the price, which is
+ * what "holding no base" means in bin terms.
+ */
+export function sideOffset(side: PositionSide, binCount: number): number {
+  if (side === "both") return 0;
+  return -(1 + Math.max(0, (binCount - 1) / 2));
 }
 
 export type DlmmInputs = {
@@ -131,10 +163,13 @@ export type DlmmInputs = {
   volatility: number;
   /** See BandConfig.captureEfficiency — the naive formula is an upper bound. */
   captureEfficiency: number;
+  /** Where the position sits relative to the price. Defaults to straddling it. */
+  side?: PositionSide;
 };
 
 export type DlmmVerdict = {
   halfWidth: number;
+  side: PositionSide;
   /** Stake-weighted share of the earning bin, over where the price actually sits. */
   effectiveShare: number;
   /** Fraction of intervals the price is expected to sit inside the position. */
@@ -158,12 +193,15 @@ export function evaluateDlmm(
   inputs: DlmmInputs,
   intervalsPerYear = 525_600,
 ): DlmmVerdict {
+  const side = inputs.side ?? "both";
   const halfWidth = binHalfWidth(inputs.binCount, inputs.binStep);
   const weights = binWeights(inputs.shape, inputs.binCount);
   const presence = activeBinDistribution(
     inputs.binCount,
     inputs.binStep,
     inputs.volatility,
+    240,
+    sideOffset(side, inputs.binCount),
   );
 
   let inRange = 0;
@@ -188,11 +226,18 @@ export function evaluateDlmm(
     inputs.captureEfficiency;
 
   const feeRate = inputs.deployed > 0 ? feeIncome / inputs.deployed : 0;
-  const bleedRate = expectedBleedRate(halfWidth, inputs.volatility);
+  // A quote-only ladder holds no base while the price is above it, so it cannot
+  // diverge while it is out of range — the bleed only applies over the fraction
+  // of the time the price is actually down among its bins. A straddle is
+  // exposed the whole time and takes the full rate.
+  const bleedRate =
+    expectedBleedRate(halfWidth, inputs.volatility) *
+    (side === "quote" ? inRange : 1);
   const netRate = feeRate - bleedRate;
 
   return {
     halfWidth,
+    side,
     effectiveShare,
     timeInRange: inRange,
     feeRate,
@@ -217,14 +262,26 @@ export function bestConfiguration(
   inputs: Omit<DlmmInputs, "binCount" | "shape">,
   binCounts = [1, 3, 5, 9, 15, 25, 41, 69],
   shapes: LiquidityShape[] = ["spot", "curve", "bid-ask"],
-): { binCount: number; shape: LiquidityShape; verdict: DlmmVerdict } {
-  let best: { binCount: number; shape: LiquidityShape; verdict: DlmmVerdict } | null =
-    null;
-  for (const shape of shapes) {
-    for (const binCount of binCounts) {
-      const verdict = evaluateDlmm({ ...inputs, binCount, shape });
-      if (!best || verdict.netRate > best.verdict.netRate) {
-        best = { binCount, shape, verdict };
+  sides: PositionSide[] = ["both"],
+): {
+  binCount: number;
+  shape: LiquidityShape;
+  side: PositionSide;
+  verdict: DlmmVerdict;
+} {
+  let best: {
+    binCount: number;
+    shape: LiquidityShape;
+    side: PositionSide;
+    verdict: DlmmVerdict;
+  } | null = null;
+  for (const side of sides) {
+    for (const shape of shapes) {
+      for (const binCount of binCounts) {
+        const verdict = evaluateDlmm({ ...inputs, binCount, shape, side });
+        if (!best || verdict.netRate > best.verdict.netRate) {
+          best = { binCount, shape, side, verdict };
+        }
       }
     }
   }
