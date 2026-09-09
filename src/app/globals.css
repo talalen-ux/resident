@@ -414,14 +414,20 @@ html:has(#intro):not(:has(#main:target)) {
   .rule-eat__bite {
     position: absolute;
     left: 0;
-    top: 50%;
+    /* Exactly the line's own box, never a pixel more. An earlier version made
+       this 3px tall out of caution about antialiasing, which meant it also
+       painted a pixel above and below the hairline. On most rules that lands on
+       the page's own ground and is invisible; on the one directly under the
+       lime hero band it cut a white notch out of the band's bottom edge, which
+       travelled along with the mark. Sharing the line's geometry exactly is
+       what makes the overlay safe, so it is not a size to adjust by eye. */
+    top: 0;
+    height: 100%;
     width: var(--rule-bite);
-    /* Taller than the hairline so no antialiased edge of it survives. */
-    height: 3px;
     /* Sits behind the mark rather than ahead of it: the rule closes up once
        the mark has passed, which is what stops a section looking as though it
        has lost its top edge for seconds at a time. */
-    transform: translate(-100%, -50%);
+    transform: translateX(-100%);
     background: var(--rule-ground, var(--color-bg-primary));
   }
 
