@@ -359,32 +359,12 @@ export const FAQS = [
   {
     question: "Is the protocol live?",
     answer:
-      "Not yet. The vault contract is complete and tested; the execution layer that opens and manages positions is not built, and nothing is deployed. The positions page displays example data, labelled as such.",
+      "Not yet. The vault contract is complete and tested, and the process that reads the chains and decides what to open runs — but it signs nothing, and nothing is deployed. The positions page displays example data, labelled as such.",
   },
   {
     question: "Why not just pick the pool with the biggest fees?",
     answer:
       "Because fee income is only one side. When the price moves, a position ends up holding more of whichever asset fell, and that cost can exceed the fees entirely. Resident prices both before opening.",
-  },
-  {
-    question: "Why a narrow range instead of a safe wide one?",
-    answer:
-      "Width is paid for in income. Capital spread across prices where nothing trades earns proportionally less of the flow. Narrow earns more and leaves range sooner, so width is set from each pool's measured volatility rather than chosen for comfort.",
-  },
-  {
-    question: "What happens if it loses money?",
-    answer:
-      "Losses are absorbed by the retained 85%. Profit already credited to holders is never reversed, though accrual pauses until the loss is recovered and distributions go quiet in the interim. Positions that move against the protocol are held and re-centred rather than sold into thin liquidity.",
-  },
-  {
-    question: "Is there anything to stake or claim?",
-    answer:
-      "No. Balances are read from the token and distributions are pushed to holders. Nothing is locked, nothing is signed, and accrued profit does not expire.",
-  },
-  {
-    question: "Do the figures on this site represent returns?",
-    answer:
-      "No. They are projections modelled at full capture, which assumes all pool volume transacts through the position's range. Measured against route-level simulation, realised capture was materially lower. Nothing is deployed, so there are no realised returns to report.",
   },
 ] as const;
 

@@ -445,10 +445,12 @@ html:has(#intro):not(:has(#main:target)) {
   }
 
   .rule-eat__jaw {
-    /* Hinged at the left edge, on the reference line, so the mouth opens
-       forward into the part of the rule that has not been eaten yet. */
-    transform-box: view-box;
-    transform-origin: 4px 18px;
+    /* The hinge is established by the groups around this one — see the note in
+       SectionRule.tsx. All this needs is to rotate about its own local origin,
+       which the nesting has already placed on the reference line at the mark's
+       leading edge, so the mouth opens forward into the part of the rule that
+       has not been eaten yet. */
+    transform-origin: 0 0;
     animation: rule-chomp 0.6s ease-in-out infinite alternate;
   }
 
@@ -510,5 +512,21 @@ html:has(#intro):not(:has(#main:target)) {
 
   .rule-eat__mark {
     display: none;
+  }
+}
+
+/* On a phone the rule is a third of the width it is on a desktop, so the same
+   fourteen-second crawl reads as a static line to anyone who is not watching
+   for it. A shorter cycle and a slightly larger mark put the motion back where
+   it is noticed at a glance, without making it restless. */
+@media (max-width: 640px) {
+  .rule-eat__mark {
+    width: 24px;
+    height: 24px;
+  }
+
+  .rule-eat__line,
+  .rule-eat__track {
+    animation-duration: 8s;
   }
 }

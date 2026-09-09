@@ -88,7 +88,7 @@ export const FAQS = [
   },
   {
     q: "How are pools chosen?",
-    a: "Six gates, all of which must pass: no v4 hook and a real LP fee, at least $25,000 of volume in the trailing hour, no more than $400,000 of liquidity within ±5% of price, trading at 60% or more of the 24-hour peak, at least 20 minutes old, and the smart-LP tracker showing net winners among the providers already there.",
+    a: "Six gates, all of which must pass: the LP fee the pool is charging right now actually reaches the position — read from the pool, so a hook that raises the fee in volatility passes and one that skims it does not — at least $25,000 of volume in the trailing hour, no more than $400,000 of liquidity within ±5% of price, trading at 60% or more of the 24-hour peak, at least 20 minutes old, and the smart-LP tracker showing net winners among the providers already there.",
   },
   {
     q: "How wide is a position?",
@@ -97,22 +97,6 @@ export const FAQS = [
   {
     q: "Why not just open in the highest-fee pool?",
     a: "Because fee income is only one side. A pool paying 3% a day into a book that moves 20% a day loses money, and a fee ranking recommends it every time. A position is opened only when expected fee income beats expected divergence loss at that pool's volatility.",
-  },
-  {
-    q: "What happens when price leaves the range?",
-    a: "Nothing immediately — one tick through the edge is not a signal. After five intervals outside its bounds the position is re-centred on the new price. A pool whose net rate stays negative for 120 intervals is abandoned rather than re-centred, because the pool has changed, not the position.",
-  },
-  {
-    q: "What happens when a position loses money?",
-    a: "The loss is absorbed by the retained 85%. Profit already accrued to holders is never reversed, but accrual pauses until the loss is earned back. Positions are held and re-centred rather than closed into thin books, so capital can sit in a losing name for a while.",
-  },
-  {
-    q: "Where does the capital come from?",
-    a: "Trading fees on $RES, and nothing else. There is no external raise and no treasury held aside, which means the protocol's capacity to earn is bounded by its own token's turnover.",
-  },
-  {
-    q: "Are the fee figures achieved returns?",
-    a: "No. They are estimates at capture efficiency 1, which credits a position with every fee paid at every price it covers — an upper bound. Measured against a route-level simulation the realised figure came in well below it. Read every projected fee number as a ceiling.",
   },
 ];
 
