@@ -54,7 +54,10 @@ if (!RPC) {
   process.exit(1);
 }
 
-const journalPath = arg("journal", ".keeper/dry-run.ndjson");
+const journalPath = arg(
+  "journal",
+  process.env.RESIDENT_JOURNAL ?? ".keeper/dry-run.ndjson",
+);
 const intervalSeconds = Number(arg("interval", "60"));
 const once = process.argv.includes("--once");
 

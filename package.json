@@ -18,7 +18,9 @@
     "pools": "node --experimental-strip-types scripts/pools.mjs",
     "preflight": "node --experimental-strip-types scripts/preflight.mjs",
     "keeper": "node --experimental-strip-types scripts/keeper.mjs",
-    "owner": "node --experimental-strip-types scripts/owner.mjs"
+    "owner": "node --experimental-strip-types scripts/owner.mjs",
+    "newkey": "node --experimental-strip-types scripts/newkey.mjs",
+    "deploy": "node --experimental-strip-types scripts/deploy.mjs"
   },
   "dependencies": {
     "ethers": "^6.17.0",
