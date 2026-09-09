@@ -16,8 +16,8 @@ export function LpDesk() {
         </div>
         <div className="flex flex-1 flex-col gap-16">
           <p className="type-h3 max-w-[708px] text-text-primary">
-            There are two ways a position gets placed, and the difference is
-            simply where it sits relative to today&rsquo;s price.
+            A position is placed in one of two shapes. The difference between
+            them is where the capital sits relative to the current price.
           </p>
 
           <div className="grid grid-cols-1 gap-px bg-rule md:grid-cols-3">

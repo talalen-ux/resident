@@ -120,7 +120,7 @@ export default async function PositionsPage() {
           {/* The keeper's own status, not the page's. A dashboard whose keeper
               died an hour ago looks exactly like one whose pools are quiet. */}
           <span className="type-body-sm text-text-secondary">
-            Keeper {feed.live ? feed.note : `— ${feed.note}`}
+            Keeper {feed.live ? feed.note : `· ${feed.note}`}
           </span>
         </div>
         <div className="flex flex-col">

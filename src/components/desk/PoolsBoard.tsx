@@ -88,7 +88,7 @@ export function AlertCard({ alert, rank }: { alert: Alert; rank?: number }) {
             </span>
             <span className={g.passed ? "text-text-secondary" : "text-text-primary"}>
               <span className="text-text-primary">{g.name}</span>
-              {" — "}
+              {": "}
               {g.detail}
             </span>
           </li>

@@ -13,8 +13,8 @@ export function Payouts() {
         </div>
         <div className="flex flex-1 flex-col gap-12 lg:pr-xl">
           <p className="type-h3 max-w-[708px] text-text-primary">
-            Every dollar the desk makes splits the same way, and the contract is
-            what enforces it.
+            Every dollar of realized profit splits the same way, and the
+            contract is what enforces it.
           </p>
 
           <div className="grid grid-cols-1 gap-px bg-rule sm:grid-cols-2 lg:grid-cols-4">

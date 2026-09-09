@@ -18,7 +18,7 @@ export const TOKEN = "$RES";
 
 export const HERO = {
   headline: "The liquidity layer for tokenized equities.",
-  sub: "Concentrated liquidity, priced and placed where fee income beats the cost of holding it — across Robinhood Chain and Solana. Fees on $RES capitalize every position. Holders take 15% of realized profit, every 15 minutes, in USDG.",
+  sub: "Concentrated liquidity, priced and placed where fee income exceeds the cost of holding it, across Robinhood Chain and Solana. Trading fees on $RES capitalize every position. Holders receive 15% of realized profit every 15 minutes, in USDG.",
   cta: "Get $RES",
   secondary: "Read the docs",
 };
@@ -30,7 +30,7 @@ export const HERO_STATS = [
 ];
 
 export const STEPS_HEADING =
-  "Fee income capitalizes the protocol. The protocol provides liquidity where fee income is highest.";
+  "Fee income capitalizes the protocol. The protocol provides liquidity where fee income exceeds the cost of holding it.";
 
 export const STEPS = [
   {
@@ -41,12 +41,12 @@ export const STEPS = [
   {
     n: "02",
     title: "Liquidity provision",
-    body: "Capital is deployed as concentrated liquidity in tokenized equity pools selected on depth and turnover — markets thin enough that a five-figure order moves the price, and active enough to generate continuous fee income.",
+    body: "Capital is deployed as concentrated liquidity in tokenized equity pools selected on depth and turnover. The protocol targets markets thin enough that a five-figure order moves the price, and active enough to pay continuous fee income.",
   },
   {
     n: "03",
     title: "Position management",
-    body: "A concentrated position earns only while price trades inside its range, so positions are re-centered as markets move. Positions that move against the protocol are held and re-centered rather than realized into thin books.",
+    body: "A concentrated position earns only while price trades inside its range, so positions are re-centered as markets move. Positions that move against the protocol are held and re-centered rather than sold into thin liquidity.",
   },
 ];
 
@@ -68,7 +68,7 @@ export const PAYOUT = {
     },
     {
       label: "Carries forward",
-      body: "Accrued profit persists in the ledger until paid, above a $300 threshold. It does not reset.",
+      body: "Accrued profit persists in the ledger until it is paid. Distributions run once $300 is owed in total, and the balance never resets.",
     },
   ],
 };
@@ -84,19 +84,19 @@ export const FAQ_HEADING = "FAQ";
 export const FAQS = [
   {
     q: "What is a concentrated position?",
-    a: "Capital committed between two prices rather than spread across every price. While the market trades inside that range the position earns a share of every fee paid; outside it, the position holds inventory and earns nothing. Narrower means a bigger share of the flow and more time spent out of range.",
+    a: "Capital committed between two prices rather than spread across every price. While the market trades inside that range, the position earns a share of every fee paid. Outside it, the position holds inventory and earns nothing. A narrower range takes a larger share of the flow and spends more time out of it.",
   },
   {
     q: "How are pools chosen?",
-    a: "Six gates, all of which must pass: the LP fee the pool is charging right now actually reaches the position — read from the pool, so a hook that raises the fee in volatility passes and one that skims it does not — at least $25,000 of volume in the trailing hour, no more than $400,000 of liquidity within ±5% of price, trading at 60% or more of the 24-hour peak, at least 20 minutes old, and the smart-LP tracker showing net winners among the providers already there.",
+    a: "Six conditions, all of which must hold. The fee the pool charges reaches the position, read live from the pool rather than assumed from the tier it was created with. At least $25,000 of volume in the trailing hour. No more than $400,000 of liquidity within 5% of the price. Trading at 60% or more of its 24-hour high. At least 20 minutes old. And the providers already in that pool are net winners rather than net losers.",
   },
   {
     q: "How wide is a position?",
-    a: "Width comes from the pool's own realised volatility, not a constant — 1.25σ over a four-hour horizon, clamped between 1% and 60%. A volatile pool gets a wider band and a smaller share of flow by construction. At 1.25σ a position sits in range about 91% of the time; buying the last few points costs roughly half the income.",
+    a: "Width is derived from each pool's own measured volatility rather than fixed: 1.25 standard deviations over a four-hour horizon, bounded at 1% and 60%. A volatile pool receives a wider range and a smaller share of flow by construction. At that width a position sits in range roughly 91% of the time. Buying the last few points of coverage costs about half the income.",
   },
   {
     q: "Why not just open in the highest-fee pool?",
-    a: "Because fee income is only one side. A pool paying 3% a day into a book that moves 20% a day loses money, and a fee ranking recommends it every time. A position is opened only when expected fee income beats expected divergence loss at that pool's volatility.",
+    a: "Because fee income is only one side of the ledger. A pool paying 3% a day into a book that moves 20% a day loses money, and a ranking built on fees recommends it every time. A position is opened only when expected fee income exceeds the expected cost of the price moving, measured at that pool's own volatility.",
   },
 ];
 

@@ -30,22 +30,22 @@ export const metadata: Metadata = {
   // the share card silently breaks in production.
   metadataBase: new URL(SITE_URL),
   title: {
-    default: "Resident — A liquidity protocol for tokenized equities",
-    template: "%s — Resident",
+    default: "Resident · Liquidity protocol for tokenized equities",
+    template: "%s · Resident",
   },
   description: DESCRIPTION,
   applicationName: "Resident",
   openGraph: {
     type: "website",
     siteName: "Resident",
-    title: "Resident — A liquidity protocol for tokenized equities",
+    title: "Resident · Liquidity protocol for tokenized equities",
     description: DESCRIPTION,
     url: SITE_URL,
     locale: "en_US",
   },
   twitter: {
     card: "summary_large_image",
-    title: "Resident — A liquidity protocol for tokenized equities",
+    title: "Resident · Liquidity protocol for tokenized equities",
     description: DESCRIPTION,
   },
 };

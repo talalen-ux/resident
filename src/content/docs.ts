@@ -62,20 +62,20 @@ export const PILLARS = [
 /** The money's route, start to finish. */
 export const CYCLE = [
   { step: "Token fees", note: "A fee is charged on every $RES trade" },
-  { step: "The vault", note: "One wallet holds everything" },
-  { step: "Selection", note: "A pool has to clear six checks" },
-  { step: "Range", note: "Tight for calm pools, wide for jumpy ones" },
+  { step: "The vault", note: "One address holds every asset" },
+  { step: "Selection", note: "Six conditions, all of which must hold" },
+  { step: "Range", note: "Tight for calm pools, wide for volatile ones" },
   {
     step: "Entry test",
-    note: "Open only if fees should beat the swings",
+    note: "Opened only if fees are expected to beat the price move",
   },
   {
     step: "Management",
-    note: "Moved when the price walks away from it",
+    note: "Re-centred when the price leaves the range",
   },
   {
     step: "Realized profit",
-    note: "Fees collected, minus what the swings cost",
+    note: "Fees collected, less what the price move cost",
   },
 ] as const;
 
@@ -85,11 +85,11 @@ export const METHOD = [
     id: "overview",
     title: "Protocol overview",
     body: [
-      "When you swap one token for another, you are trading against a pool of money someone else put there. They put it up, and they get a small cut of every trade that uses it. That is what Resident does: it is the money in the pool, collecting the cut.",
-      'The twist is that you do not have to cover every price. You can say "my money is only in play between $9 and $11". Inside that window you earn a much bigger share of the trades, because your money is concentrated where the action is. Outside it you earn nothing, and you just sit holding whatever the pool left you with.',
+      "Every swap trades against a pool of capital that someone committed. Whoever committed it receives a share of the fee on every trade that uses it. Resident is that capital, and that share is what it earns.",
+      "Liquidity does not have to cover every price. A position can be committed to a single band, say between $9 and $11. Inside that band it takes a much larger share of the trades, because the capital is concentrated where the trading happens. Outside it, the position earns nothing and holds whatever the pool left it with.",
       "The protocol does three things: select pools worth being in, size a range the price will hold inside, and close a position once it no longer earns its keep.",
     ],
-    pull: "You are not betting on the price going up. You are being paid rent for letting other people trade.",
+    pull: "This is not a position on price. It is rent, paid for making a market other people trade in.",
   },
   {
     n: "02",
@@ -106,8 +106,8 @@ export const METHOD = [
     title: "Pool selection",
     body: [
       "Six conditions, evaluated continuously. All six must hold; a pool that fails any one is not a candidate at any size.",
-      "The fee actually reaches us — the protocol reads the fee the pool is charging right now rather than the tier it was created with, so a pool that quietly stopped paying its providers fails here. At least $25,000 has been traded in it in the last hour, because a quiet pool pays nothing. There is not too much money already in it — no more than $400,000 near the current price — because the more crowded it is, the smaller our slice. The price is still within 40% of its 24-hour high, so we are not the ones catching a falling knife. It is at least 20 minutes old, which skips the chaos of a brand-new launch. And other people providing money to that pool are currently making money, not losing it.",
-      "These are Uniswap v4 pools. Many of the best ones charge a dynamic fee that rises when the market gets busy, and a dynamic fee is implemented with a hook — so a rule that avoided hooks would avoid the pools worth being in. What matters is not whether a pool has custom code attached but whether the fee it charges still arrives, which is read from the pool directly.",
+      "The fee the pool charges reaches the position. The protocol reads the fee being charged now rather than the tier the pool was created with, so a pool that has quietly stopped paying its providers fails here. At least $25,000 has traded in it in the last hour, because a quiet pool pays nothing. No more than $400,000 of liquidity sits near the current price, because the more crowded a pool is, the smaller the share. The price is still within 40% of its 24-hour high, so the protocol is not providing liquidity into a fall. The pool is at least 20 minutes old, which excludes the first minutes of a launch. And the providers already in it are making money rather than losing it.",
+      "These are Uniswap v4 pools. Many of the best of them charge a dynamic fee that rises when the market is busy, and a dynamic fee is implemented with a hook. A rule that avoided hooks would therefore avoid the pools worth being in. What matters is not whether a pool has custom code attached, but whether the fee it charges still arrives, which is read from the pool directly.",
       "A pool that stops qualifying remains on the board for 24 hours rather than disappearing, so activity that has already passed stays visible.",
     ],
   },
@@ -126,7 +126,7 @@ export const METHOD = [
     id: "entry",
     title: "Entry criteria",
     body: [
-      "When the price moves while capital sits in a range, the position ends up holding more of whichever asset fell and less of the one that rose — a worse outcome than holding both and doing nothing. This cost is real and scales with how far the price travels.",
+      "When the price moves while capital sits in a range, the position ends up holding more of whichever asset fell and less of the one that rose. That is a worse outcome than holding both and doing nothing, and the cost scales with how far the price travels.",
       "A pool paying 3% a day into a book that moves 20% a day loses money while collecting fees. A board ranked on fee income recommends it every time.",
       "Resident prices both sides before opening: expected fee income against the expected cost of price movement, at that pool's own volatility. A position is opened only when fees exceed that cost.",
     ],
@@ -137,7 +137,7 @@ export const METHOD = [
     title: "Position management",
     body: [
       "A position out of range earns nothing. It is not moved immediately, since prices cross an edge and return routinely, but a sustained move re-centres it on the new price.",
-      "A position closes when net earnings — fees less the cost of price movement — fall 35% below the capital committed. A pool that stays unprofitable is dropped rather than re-centred: the pool has changed, not the position.",
+      "A position closes when net earnings fall 35% below the capital committed, where net means fees collected less the cost of price movement. A pool that stays unprofitable is dropped rather than re-centred, because what has changed is the pool and not the position.",
       "Positions that move against the protocol are held and re-centred rather than sold into thin liquidity, which usually deepens the loss. The trade-off is that capital can remain committed to a weak market for an extended period.",
     ],
   },
@@ -146,9 +146,9 @@ export const METHOD = [
     id: "execution",
     title: "Execution",
     body: [
-      "Choosing a position and taking one are different problems. A process reads the chains on a fixed interval, prices every pool it watches, decides, and writes down what it is about to do before it does it. If it dies halfway through, it comes back knowing there is a transaction it cannot account for, and it goes and looks rather than assuming either way — which is what stops the same position being opened twice.",
+      "Choosing a position and taking one are different problems. A process reads the chains on a fixed interval, prices every pool it watches, decides, and writes down what it is about to do before it does it. If it stops halfway through, it restarts knowing there is a transaction it cannot account for, and it checks the chain rather than assuming either way. That is what prevents the same position being opened twice.",
       "Each interval runs the same rules in the same order. Close anything that has stopped earning; collect fees that are worth collecting; re-centre anything that has drifted off the price; put idle money to work in the best pool that qualifies; and only then consider moving money to another chain, which is the one decision that cannot be undone within the interval.",
-      "Fees are collected once they reach $100, or after 15 minutes, whichever comes first — and never when what is there would not cover several times the cost of collecting it, so a pool that has gone quiet simply stops being swept rather than being drained a few dollars at a time.",
+      "Fees are collected once they reach $100, or after 15 minutes, whichever comes first. They are never collected when the amount would not cover several times the cost of collecting it, so a pool that has gone quiet stops being swept rather than being drained a few dollars at a time.",
       "The process cannot change anything about the vault. It can move money between venues; it cannot change which venues exist, raise the payout cap, or allow a new bridge. It refuses to start if the key it has been given is the one that could.",
     ],
     pull: "Nothing is remembered that was not written down first.",
@@ -170,7 +170,7 @@ export const METHOD = [
     title: "What gets reported",
     body: [
       "Almost every liquidity dashboard shows fees earned. Fees are the flattering half of the number: a position can be collecting handsomely while the money underneath it loses more than the fees bring in, and a page that shows fees alone will show that position as a winner for as long as it keeps losing.",
-      "Resident reports net — fees less what the price move cost the money committed — over the same window, and reports it when it is negative. Both halves are shown next to it, so the arithmetic is visible rather than asserted.",
+      "Resident reports net over the same window, meaning fees less what the price move cost the capital committed, and reports it when it is negative. Both halves are shown alongside it, so the arithmetic is visible rather than asserted.",
       "Positions are kept in a ledger that nothing leaves. What a closed position made is arithmetic on amounts that went in and came out, with the transactions listed; what an open one is worth is marked and reported separately, never added to the closed figure. Adding the two produces something that moves with the market and reads like a bank balance.",
       "Where a figure has not been measured, the page says so instead of showing a zero. A pool with no comparable market elsewhere has no reference price, and a position without enough history has no six-hour net.",
     ],
@@ -181,7 +181,7 @@ export const METHOD = [
     title: "Status and limitations",
     body: [
       "Resident is pre-deployment. The vault contract is complete and covered by a test suite; it has not been externally audited and is not deployed. No vault holds assets, and the positions page displays example data, labelled as such.",
-      "The process described above runs, and it signs nothing. It reads chains, ranks pools, and writes down every position it would have opened — which is worth having on its own, because that record can be checked against what those pools actually paid before any money is at risk. Two things stand between it and doing anything: a signing service, which does not live in the code and should not, and the venue-specific part that knows how to open a position on each venue.",
+      "The process described above runs, and it signs nothing. It reads chains, ranks pools, and records every position it would have opened. That record is worth having on its own, because it can be checked against what those pools actually paid before any capital is at risk. Two things stand between it and taking a position: a signing service, which does not belong in this code, and the venue-specific component that knows how to open a position on each venue.",
       "Fee projections are modelled at full capture: they assume all pool volume transacts through the position's range. Measured against route-level simulation, realised capture was materially lower. Every projection on this site is an upper bound.",
     ],
   },
@@ -192,23 +192,23 @@ export const LP_BANDS = [
     mode: "standard",
     label: "Two-sided range",
     summary:
-      "Money on both sides of the current price, so it earns whether the price ticks up or down. How wide the window is depends on how much that pool bounces around.",
-    range: "from a bit below today's price to a bit above",
+      "Capital on both sides of the current price, so the position earns whether price moves up or down. Width is set by the pool's own volatility.",
+    range: "a band around the current price",
     lifecycle: [
-      "Price wanders out and stays out → the window is picked up and re-centred.",
-      "Earnings, after the cost of the swings, fall 35% below what went in → closed.",
-      "The pool keeps losing money for long enough → dropped, not re-centred.",
+      "Price leaves the range and stays out → the position is re-centred.",
+      "Net earnings fall 35% below the capital committed → the position is closed.",
+      "The pool stays unprofitable for long enough → dropped rather than re-centred.",
     ],
   },
   {
     mode: "single-sided",
     label: "Bid-side range",
     summary:
-      "Placed entirely underneath the current price, so it only fills if the price comes down to it. Used when we would rather buy the token at a price we picked than hold it on both sides.",
-    range: "entirely below today's price",
+      "Placed entirely below the current price, so it fills only if the price comes down to it. Used where the protocol would rather acquire the token at a level it selected than hold it on both sides.",
+    range: "entirely below the current price",
     lifecycle: [
-      "The price drops through it → we end up holding the token, at the price we chose.",
-      "The price runs away upward → nothing happened; it is closed and re-placed higher.",
+      "The price falls through it → the protocol holds the token, at the level it selected.",
+      "The price runs away upward → nothing fills, and the position is closed and re-placed higher.",
     ],
   },
 ] as const;
@@ -222,7 +222,7 @@ export const SIGNALS = [
     body: "Pools ranked by what a $10,000 position would earn at current conditions. Share of flow is derived from the liquidity already sitting near the price, applied to trailing 5-minute, 1-hour, 6-hour and 24-hour volume.",
     detail:
       "Pools that stop qualifying fade over 24 hours rather than disappearing, so recent activity remains visible.",
-    read: "The board ranks candidates. It does not open positions — every entry still has to clear the net test.",
+    read: "The board ranks candidates. It does not open positions, and every entry still has to clear the net test.",
   },
   {
     title: "Liquidity provider analytics",
@@ -236,7 +236,7 @@ export const SIGNALS = [
 export const PAYOUT_STEPS = [
   {
     label: "Realized profit",
-    body: "Fees collected less the cost of price movement. Monotonic — it only increases.",
+    body: "Fees collected less the cost of price movement. Monotonic: it only increases.",
   },
   {
     label: "Retained capital",
@@ -257,12 +257,12 @@ export const SNAPSHOT_NOTE =
 
 export const INVARIANTS = [
   {
-    invariant: "Everything lives at one address",
+    invariant: "Every asset sits at one address",
     mechanism:
-      "Positions, cash and incoming fees all sit in the vault. The bot's own wallet only holds gas",
+      "Positions, cash and incoming fees are all held by the vault. The keeper's own wallet holds gas and nothing else",
   },
   {
-    invariant: "The bot can only trade approved places",
+    invariant: "The keeper can only reach approved venues",
     mechanism:
       "Any other destination is rejected by the contract, not by policy",
   },
@@ -273,7 +273,7 @@ export const INVARIANTS = [
   {
     invariant: "Reported profit cannot be walked back",
     mechanism:
-      "The total can only go up, so a report cannot be retracted to strand holders",
+      "The total can only increase, so a report cannot be retracted to strand holders",
   },
   {
     invariant: "Only 15% can ever be paid out",
@@ -281,17 +281,17 @@ export const INVARIANTS = [
       "The contract tracks the holder share separately and will not pay beyond it",
   },
   {
-    invariant: "A loss cannot claw back your share",
+    invariant: "A loss cannot reduce what is already owed",
     mechanism:
-      "Absorbing a loss reduces the 85% and pauses new profit; it never reduces what holders are already owed",
+      "Absorbing a loss reduces the 85% and pauses new accrual. It never reduces what holders are already owed",
   },
   {
     invariant: "Payouts are capped per day",
     mechanism: "A rolling 24-hour limit per asset, enforced by the contract",
   },
   {
-    invariant: "The bot can be replaced instantly",
-    mechanism: "One transaction swaps it out. The money does not move",
+    invariant: "The keeper can be replaced in one transaction",
+    mechanism: "One transaction swaps it out, and no asset moves",
   },
   {
     invariant: "The owner can take everything",
@@ -303,7 +303,7 @@ export const INVARIANTS = [
 
 export const PARAMETERS = [
   { meaning: "How wide the range is", value: "worked out per pool" },
-  { meaning: "Narrowest and widest it can go", value: "1% – 60%" },
+  { meaning: "Narrowest and widest it can go", value: "1% to 60%" },
   {
     meaning: "Time the price stays in range, at that width",
     value: "about 91%",
@@ -324,7 +324,7 @@ export const PARAMETERS = [
   { meaning: "Fees are collected once they reach", value: "$100" },
   { meaning: "Or after this long uncollected", value: "15 minutes" },
   { meaning: "Readings under the floor before a position is retired", value: "10" },
-  { meaning: "Held back so the desk can always pay for gas", value: "$250" },
+  { meaning: "Held back so the protocol can always pay for gas", value: "$250" },
   { meaning: "Smallest position on a small-cap pool", value: "$250" },
   { meaning: "Widest a Solana position is spread", value: "69 bins" },
   { meaning: "A cross-chain edge is assumed to last", value: "12 hours" },
@@ -349,7 +349,7 @@ export const FAQS = [
   {
     question: "Who controls the vault?",
     answer:
-      "The deploying wallet can withdraw any asset at any time, without delay or governance. The keeper cannot — it is restricted to approved venues and to distributions. This is the protocol's principal risk and the contract does not mitigate it.",
+      "The deploying wallet can withdraw any asset at any time, without delay or governance. The keeper cannot: it is restricted to approved venues and to distributions. This is the protocol's principal risk, and the contract does not mitigate it.",
   },
   {
     question: "Has the protocol been audited?",
@@ -359,7 +359,7 @@ export const FAQS = [
   {
     question: "Is the protocol live?",
     answer:
-      "Not yet. The vault contract is complete and tested, and the process that reads the chains and decides what to open runs — but it signs nothing, and nothing is deployed. The positions page displays example data, labelled as such.",
+      "Not yet. The vault contract is complete and tested, and the process that reads the chains and decides what to open runs, but it signs nothing and nothing is deployed. The positions page displays example data, labelled as such.",
   },
   {
     question: "Why not just pick the pool with the biggest fees?",

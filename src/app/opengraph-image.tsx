@@ -11,7 +11,7 @@ import { ImageResponse } from "next/og";
  * legible at this scale and the layout does not depend on exact metrics.
  */
 export const alt =
-  "Resident — a liquidity protocol for tokenized equities on Robinhood Chain";
+  "Resident, a liquidity protocol for tokenized equities on Robinhood Chain";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 

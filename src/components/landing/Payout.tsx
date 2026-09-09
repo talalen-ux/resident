@@ -27,7 +27,7 @@ export function Payout() {
             </div>
             <div className="flex items-baseline justify-between gap-4">
               <span className="type-eyebrow text-text-secondary">
-                Working capital — redeployed, absorbs losses
+                Working capital: redeployed, absorbs losses
               </span>
               <span className="type-eyebrow text-text-secondary tabular-nums">
                 85%

@@ -16,12 +16,12 @@ export function Custody() {
         </div>
         <div className="flex flex-1 flex-col gap-10 lg:pr-xl">
           <p className="type-body text-text-secondary">
-            All capital — fee inflow, cash, inventory — is custodied by a single
-            on-chain fund contract, publicly auditable in real time. An
-            autonomous execution agent runs the operation against that contract:
-            it surveys venues, routes orders, and triggers the distribution,
-            while the contract constrains every action it can take. The agent
-            itself holds nothing; every balance lives at the fund address.
+            All capital, including fee inflow, cash and inventory, is custodied
+            by a single on-chain vault contract that is publicly auditable in
+            real time. An autonomous keeper operates against that contract: it
+            surveys venues, routes orders and triggers distributions, while the
+            contract constrains every action it can take. The keeper holds
+            nothing itself. Every balance sits at the vault address.
           </p>
 
           <div className="overflow-x-auto">

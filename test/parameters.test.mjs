@@ -33,7 +33,7 @@ import { DEFAULT_TICK } from "../src/lib/keeper/loop.ts";
 /** meaning → the string the constant should render as. */
 const BINDINGS = {
   "Narrowest and widest it can go": () =>
-    `${DEFAULT_WIDTH_CONFIG.minWidth * 100}% – ${DEFAULT_WIDTH_CONFIG.maxWidth * 100}%`,
+    `${DEFAULT_WIDTH_CONFIG.minWidth * 100}% to ${DEFAULT_WIDTH_CONFIG.maxWidth * 100}%`,
   "Minimum traded in the last hour": () =>
     `$${DEFAULT_ALERT_CONFIG.minVolume1h.toLocaleString("en-US")}`,
   "Maximum money already near the price": () =>
@@ -54,7 +54,8 @@ const BINDINGS = {
   "Or after this long uncollected": () => `${DEFAULT_SWEEP.maxIntervals} minutes`,
   "Readings under the floor before a position is retired": () =>
     `${DEFAULT_RETIRE.runLength}`,
-  "Held back so the desk can always pay for gas": () => `$${DEFAULT_DECIDE.reserve}`,
+  "Held back so the protocol can always pay for gas": () =>
+    `$${DEFAULT_DECIDE.reserve}`,
   "Smallest position on a small-cap pool": () => `$${DEFAULT_SIZING.minCapital}`,
   "Widest a Solana position is spread": () => `${DEFAULT_SIZING.maxBinCount} bins`,
   "A cross-chain edge is assumed to last": () =>

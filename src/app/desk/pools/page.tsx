@@ -78,7 +78,7 @@ export default async function PoolsPage() {
                   <code>{key}</code>
                 </span>
               ))}
-              . Volume and LP history also need an indexer — see{" "}
+              . Volume and LP history also need an indexer. See{" "}
               <code>INTEGRATIONS.md</code>.
             </>
           ) : null}
@@ -87,7 +87,7 @@ export default async function PoolsPage() {
 
       <div className="flex flex-col gap-xl pt-12">
         <Panel
-          title={`Qualifying — ${board.qualifying.length}`}
+          title={`Qualifying · ${board.qualifying.length}`}
           hint="ranked by trailing-hour fee estimate"
         >
           {board.qualifying.length ? (
@@ -104,7 +104,7 @@ export default async function PoolsPage() {
         </Panel>
 
         <Panel
-          title={`Not qualifying — ${board.rejected.length}`}
+          title={`Not qualifying · ${board.rejected.length}`}
           hint="kept for 24h, so a spike that has passed is still readable"
         >
           <div className="grid grid-cols-1 gap-px lg:grid-cols-2">

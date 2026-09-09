@@ -31,7 +31,7 @@ const ago = (ms: number) => {
   return minutes < 90 ? `${minutes}m ago` : `${Math.round(minutes / 60)}h ago`;
 };
 
-/** A label over a value. The dash is the whole point — see the note above. */
+/** A label over a value. Saying so when there is nothing to say is the point. */
 function Field({
   label,
   value,
@@ -54,7 +54,7 @@ function Field({
     <div className="flex flex-col gap-1">
       <span className="type-eyebrow text-text-secondary">{label}</span>
       <span className={`type-body tabular-nums ${colour}`}>
-        {value ?? "—"}
+        {value ?? "not measured"}
       </span>
     </div>
   );
@@ -204,7 +204,7 @@ export function PoolCard({ card }: { card: Card }) {
             worth reading: fees less what the price move cost the principal. */}
         <div className="flex flex-col gap-2">
           <span className="type-eyebrow text-text-secondary">
-            Net {card.net?.window ?? "6h"} — fees less what the price cost us
+            Net {card.net?.window ?? "6h"}: fees less what the price move cost
           </span>
           {card.net === null ? (
             <span className="type-body text-text-secondary">
