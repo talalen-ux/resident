@@ -9,19 +9,20 @@ import { SectionRule } from "@/components/ui/SectionRule";
  */
 export function Straight() {
   return (
-    <section id="risk" className="hover-lime relative py-xxl">
+    <section id="risk" className="relative py-xxl">
       <SectionRule delay={-7.4} />
       <h2 className="type-h2 text-[28px] text-balance text-text-primary sm:text-[36px]">
         {FAQ_HEADING}
       </h2>
 
-      <div className="mt-12 flex flex-col">
-        {FAQS.map((faq, i) => (
+      {/* A one-pixel gap over a rule-coloured ground, so the dividers between
+          questions are the edges of boxes rather than lines under them. A fill
+          needs somewhere to stop. */}
+      <div className="mt-12 flex flex-col gap-px bg-rule">
+        {FAQS.map((faq) => (
           <div
             key={faq.q}
-            className={`flex flex-col gap-4 py-8 md:flex-row md:gap-12 ${
-              i < FAQS.length - 1 ? "border-b border-rule" : ""
-            }`}
+            className="hover-lime-item flex flex-col gap-4 bg-bg-primary p-8 md:flex-row md:gap-12"
           >
             <h3 className="type-h3 shrink-0 text-text-primary md:w-[320px]">
               {faq.q}

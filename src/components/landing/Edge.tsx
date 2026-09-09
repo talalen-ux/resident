@@ -11,7 +11,7 @@ import { SectionRule } from "@/components/ui/SectionRule";
  */
 export function Edge() {
   return (
-    <section id="edge" className="hover-lime relative py-xxl">
+    <section id="edge" className="relative py-xxl">
       <SectionRule delay={-2.7} />
       <h2 className="type-h2 max-w-[720px] text-[28px] text-balance text-text-primary sm:text-[36px]">
         {EDGE_HEADING}
@@ -21,7 +21,7 @@ export function Edge() {
         {EDGE.map((item) => (
           <div
             key={item.label}
-            className="flex flex-col gap-4 bg-bg-primary py-8 lg:flex-row lg:gap-12"
+            className="hover-lime-item flex flex-col gap-4 bg-bg-primary p-8 lg:flex-row lg:gap-12"
           >
             <h3 className="type-label shrink-0 text-brand-primary lg:w-[276px]">
               {item.label}

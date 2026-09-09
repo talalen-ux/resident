@@ -523,76 +523,32 @@ html:has(#intro):not(:has(#main:target)) {
 }
 
 /* ---------------------------------------------------------------------------
-   Hover-to-lime sections.
+   Hover-to-lime, per item.
 
-   The whole block takes the brand fill on pointer-over and its text goes white.
-   Tailwind sets colour on the elements themselves rather than inheriting it, so
-   a colour on the section would lose to every `text-*` utility inside; the
-   override has to name the elements it is recolouring.
+   The fill belongs to one row, not to the section it sits in: hovering the
+   second FAQ answer fills that answer and leaves the first alone. Section
+   headings are outside the boxes entirely and never change, which is what keeps
+   the page readable while a row is lit.
 
-   Two things this has to remember about the rule at the top of each block. The
-   bite is an opaque block painted in --rule-ground, so on a limed section it
-   would cut a white notch through the fill exactly as it once did through the
-   hero band; setting --rule-ground on hover is why that variable exists. And
-   the mark itself stays in ink rather than going white with the text, because
-   it is the brand mark and ink on lime is the pairing it was drawn for.
-
-   CONTRAST: white on #C1FF72 measures 1.18:1. This is a deliberate instruction
-   and not an oversight, but nothing in this block is readable while hovered.
-   Switching the override to var(--color-on-brand) restores the 14:1 the hero
-   band uses, and is a one-line change.
-   --------------------------------------------------------------------------- */
-/* Deliberately NOT inside @layer components. Tailwind's utilities layer beats
+   Deliberately NOT inside @layer components. Tailwind's utilities layer beats
    every layered rule regardless of specificity, so `text-text-primary` on a
-   heading would win against a components-layer override and the text would stay
-   dark on lime. Unlayered rules beat all layered ones, which is what these need
-   to be. */
-.hover-lime {
-  /* Padding, so the fill is a block with edges rather than a wash that runs
-     into the sections above and below it. */
-  padding-inline: 32px;
-  background-color: transparent;
+   heading inside a box would win against a components-layer override and the
+   text would stay dark on lime. Unlayered rules beat all layered ones.
+   --------------------------------------------------------------------------- */
+.hover-lime-item {
   transition: background-color 180ms ease;
 }
 
-.hover-lime:hover {
+.hover-lime-item:hover {
   background-color: var(--color-brand-fill);
-  --rule-ground: var(--color-brand-fill);
 }
 
-.hover-lime:hover :is(h1, h2, h3, h4, p, span, li, a, strong, em, button, td, th) {
+.hover-lime-item:hover :is(h1, h2, h3, h4, p, span, li, a, strong, em, button, td, th) {
   color: #ffffff;
 }
 
-/* These sections are built as white cards sitting on a rule-coloured container,
-   with a one-pixel gap letting the container show through as the separator.
-   Left alone the cards stay white islands in the fill.
-
-   The cards take the fill rather than going transparent, which matters: they
-   are what covers the container, and a transparent card exposes the whole
-   container background instead of the one pixel between them. */
-.hover-lime:hover [class~="bg-bg-primary"] {
-  background-color: var(--color-brand-fill);
-}
-
-/* The separators themselves, which are a pale grey chosen against white and
-   therefore invisible on lime. */
-.hover-lime:hover [class~="bg-rule"] {
-  background-color: rgba(26, 28, 23, 0.28);
-}
-
-.hover-lime:hover [class~="border-rule"] {
-  border-color: rgba(26, 28, 23, 0.28);
-}
-
-@media (max-width: 640px) {
-  .hover-lime {
-    padding-inline: 16px;
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .hover-lime {
+  .hover-lime-item {
     transition: none;
   }
 }
