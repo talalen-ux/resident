@@ -2,46 +2,65 @@
 
 For the engineer taking this to mainnet. Read this before deploying anything.
 
-The short version: **the vault contract is ready to be tested. The thing that
-would drive it does not exist yet.** Nothing in this repository has ever touched
-a live chain, signed a transaction, or held a key.
+The short version: **the vault contract is ready to be tested, and the process
+that would drive it now exists and signs nothing.** It reads chains, ranks
+pools, decides, and writes down what it would have done. Two pieces stand
+between that and a running desk, and both are named below. Nothing in this
+repository has ever touched a live chain, signed a transaction, or held a key.
 
 ## What is in the box
 
 | Component | Path | State |
 |---|---|---|
-| Custody contract | `contracts/ResidentVault.sol` | Complete, 30 tests on a local EVM, **unaudited** |
-| Strategy math | `src/lib/sim/` | Complete and tested (122 tests), **pure functions — decides nothing on its own** |
+| Custody contract | `contracts/ResidentVault.sol` | Complete, 40 tests on a local EVM, **unaudited** |
+| Strategy math | `src/lib/sim/` | Complete and tested (258 tests), **pure functions — decides nothing on its own** |
 | Chain constants | `src/lib/chain.ts` | Transcribed from official sources, **never checked against the chain** |
 | Token registry | `src/lib/tokens.ts` | 194 canonical tokens, checksums verified, addresses not read on-chain |
+| Keeper | `src/lib/keeper/` | Journal, reconciliation, sweep and retire rules, decision ordering, tick loop, ledger. **Dry run only — no signer, no venue adapter** |
 | Read-only adapters | `src/lib/desk/` | Reads vault state over JSON-RPC. Reads only |
 | Site + dashboards | `src/app/` | Runs on fixtures until a vault is configured, and says so on screen |
 | Chain verifier | `scripts/verify-chain.mjs` | **Run this first.** See below |
 
-## What does not exist
+## What the keeper does, and what it cannot do
 
-There is no keeper. Nothing in this repository:
+`npm run keeper` runs it. It needs `RESIDENT_RPC_URL` and nothing else, because
+it takes volume, pool age and price history out of Swap and Initialize logs
+rather than from an indexer.
 
-- opens, re-centres or closes a liquidity position,
-- calls `recordRealized`, `absorbLoss`, `distribute`, or `exec`,
-- signs or sends any transaction,
-- holds or reads a private key.
+Each interval it reconciles anything left in flight, prices every watched pool,
+marks every open position, decides, and journals. The decision order is fixed
+and is the part worth reading before changing anything: retire what has stopped
+earning, sweep what is worth sweeping, re-centre what has drifted, deploy idle
+capital, then consider crossing a chain. See `src/lib/keeper/decide.ts`.
 
-`grep -rn "recordRealized\|distribute(" src/ scripts/` returns only prose in the
-docs copy. The vault is a safe with a well-tested lock and no operator. Writing
-that operator — the loop that reads the opportunity board, applies
-`evaluateEntry`, mints the position through the v4 position manager, tracks it,
-and reports profit back to the vault — is the work between here and a running
-desk. Budget for it as a real project, not a wiring exercise.
+**It signs nothing, and there is no flag in this repository that changes that.**
+Two pieces are deliberately absent:
 
-Two dependencies that operator needs and does not have:
+1. **A signer.** `src/lib/keeper/signer.ts` defines the interface and ships a
+   dry run. Put a KMS or HSM behind `RemoteSigner`; do not put a key in a file.
+   `checkSigner` refuses to run as the vault owner and refuses a signer that is
+   not the vault's keeper, and it is re-checked every interval because the
+   keeper can be rotated under a running process.
+2. **A venue executor.** Something that turns an `Intent` into a call on the v4
+   position manager or on Meteora. `executor-dryrun.ts` is the shape it has to
+   have. The one contract it must honour: if it submits a call and cannot then
+   say whether it landed, it raises `Unconfirmed` rather than throwing — an
+   error is recorded as a failure and moved past, and `Unconfirmed` leaves the
+   intent in flight so the next interval has to go and look. Getting this wrong
+   is how the same position gets opened twice.
 
-1. **An indexer.** Pool selection needs per-pool volume windows and LP event
-   history. An RPC alone cannot serve these at usable speed. `INTEGRATIONS.md`
-   names the interface (`PoolsSource`, `HistorySource`); both currently have
-   fixture implementations only.
-2. **A reference price feed.** `RESIDENT_REFERENCE_API_URL` in `.env.example`
-   is unset and there is no client for it.
+Leave the dry run pointed at a live RPC for a week before either exists. The
+journal it produces says which positions the desk would have opened and when it
+would have moved them, and those can be checked against what the pools actually
+paid — for nothing, and before any money is at risk.
+
+Still missing, and neither blocks the dry run:
+
+1. **Volatility for Meteora pairs.** The scanner refuses to price a pool without
+   it rather than treating it as calm, so Solana pools are skipped and reported
+   until a source exists.
+2. **Husher's real numbers.** `BridgeCost` takes a fee, a fixed cost and a
+   latency. The allocation figures are only as good as those three.
 
 ## Cross-chain allocation (Solana / Meteora)
 
@@ -130,11 +149,11 @@ source's ABI, that owner and keeper are different addresses, that the split is
 15%, that the ledger is zeroed, that the distribution cap is set, and that any
 allowlisted bridge has a cap you meant.
 
-**What it cannot check, and what stops this stage today:** there is no keeper.
-Nothing in this repository opens a position, calls `recordRealized`, or signs
-anything. A funded vault with nothing driving it holds money and does nothing —
-so funding it now buys no information that stage 2 does not give you for free.
-Testnet is chain 46630 and the same commands work there.
+**What it cannot check, and what stops this stage today:** the keeper runs but
+signs nothing, so nothing opens a position or calls `recordRealized`. A funded
+vault with nothing driving it holds money and does nothing — so funding it now
+buys no information that stage 2 does not give you for free. Testnet is chain
+46630 and the same commands work there.
 
 ## Order of operations
 

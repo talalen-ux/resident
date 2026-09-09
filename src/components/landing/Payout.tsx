@@ -1,9 +1,11 @@
 import { PAYOUT } from "@/content/landing";
+import { SectionRule } from "@/components/ui/SectionRule";
 
 /** The money. The 15/85 split is drawn, not described. */
 export function Payout() {
   return (
-    <section id="payout" className="border-t border-rule py-xxl">
+    <section id="payout" className="relative py-xxl">
+      <SectionRule delay={-3.2} />
       <div className="flex flex-col gap-12 lg:flex-row lg:gap-24">
         <div className="flex flex-1 flex-col gap-6">
           <h2 className="type-h2 text-[28px] text-balance text-text-primary sm:text-[36px]">

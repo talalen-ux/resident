@@ -1,4 +1,5 @@
 import { INVARIANTS } from "@/content/docs";
+import { SectionRule } from "@/components/ui/SectionRule";
 
 /**
  * Custody properties, stated as held. The last row is the one that constrains
@@ -6,7 +7,8 @@ import { INVARIANTS } from "@/content/docs";
  */
 export function Custody() {
   return (
-    <section id="custody" className="border-t border-rule py-xxl">
+    <section id="custody" className="relative py-xxl">
+      <SectionRule delay={-9.2} />
       <div className="flex flex-col gap-12 lg:flex-row">
         <div className="flex shrink-0 items-start gap-6 lg:w-[276px]">
           <span className="type-label text-brand-primary">#</span>

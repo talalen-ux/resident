@@ -1,9 +1,11 @@
 import { PAYOUT_STEPS, SNAPSHOT_NOTE } from "@/content/docs";
+import { SectionRule } from "@/components/ui/SectionRule";
 
 /** Where the money goes, in four steps. */
 export function Payouts() {
   return (
-    <section id="payouts" className="border-t border-rule py-xxl">
+    <section id="payouts" className="relative py-xxl">
+      <SectionRule delay={-8.1} />
       <div className="flex flex-col gap-12 lg:flex-row">
         <div className="flex shrink-0 items-start gap-6 lg:w-[276px]">
           <span className="type-label text-brand-primary">#</span>

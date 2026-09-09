@@ -143,6 +143,18 @@ export const METHOD = [
   },
   {
     n: "07",
+    id: "execution",
+    title: "Execution",
+    body: [
+      "Choosing a position and taking one are different problems. A process reads the chains on a fixed interval, prices every pool it watches, decides, and writes down what it is about to do before it does it. If it dies halfway through, it comes back knowing there is a transaction it cannot account for, and it goes and looks rather than assuming either way — which is what stops the same position being opened twice.",
+      "Each interval runs the same rules in the same order. Close anything that has stopped earning; collect fees that are worth collecting; re-centre anything that has drifted off the price; put idle money to work in the best pool that qualifies; and only then consider moving money to another chain, which is the one decision that cannot be undone within the interval.",
+      "Fees are collected once they reach $100, or after 15 minutes, whichever comes first — and never when what is there would not cover several times the cost of collecting it, so a pool that has gone quiet simply stops being swept rather than being drained a few dollars at a time.",
+      "The process cannot change anything about the vault. It can move money between venues; it cannot change which venues exist, raise the payout cap, or allow a new bridge. It refuses to start if the key it has been given is the one that could.",
+    ],
+    pull: "Nothing is remembered that was not written down first.",
+  },
+  {
+    n: "08",
     id: "accounting",
     title: "Fee distribution",
     body: [
@@ -153,12 +165,23 @@ export const METHOD = [
     ],
   },
   {
-    n: "08",
+    n: "09",
+    id: "reporting",
+    title: "What gets reported",
+    body: [
+      "Almost every liquidity dashboard shows fees earned. Fees are the flattering half of the number: a position can be collecting handsomely while the money underneath it loses more than the fees bring in, and a page that shows fees alone will show that position as a winner for as long as it keeps losing.",
+      "Resident reports net — fees less what the price move cost the money committed — over the same window, and reports it when it is negative. Both halves are shown next to it, so the arithmetic is visible rather than asserted.",
+      "Positions are kept in a ledger that nothing leaves. What a closed position made is arithmetic on amounts that went in and came out, with the transactions listed; what an open one is worth is marked and reported separately, never added to the closed figure. Adding the two produces something that moves with the market and reads like a bank balance.",
+      "Where a figure has not been measured, the page says so instead of showing a zero. A pool with no comparable market elsewhere has no reference price, and a position without enough history has no six-hour net.",
+    ],
+  },
+  {
+    n: "10",
     id: "limits",
     title: "Status and limitations",
     body: [
       "Resident is pre-deployment. The vault contract is complete and covered by a test suite; it has not been externally audited and is not deployed. No vault holds assets, and the positions page displays example data, labelled as such.",
-      "The execution layer that opens and manages positions is not yet built. The repository contains the vault contract, the strategy implementation, and this site.",
+      "The process described above runs, and it signs nothing. It reads chains, ranks pools, and writes down every position it would have opened — which is worth having on its own, because that record can be checked against what those pools actually paid before any money is at risk. Two things stand between it and doing anything: a signing service, which does not live in the code and should not, and the venue-specific part that knows how to open a position on each venue.",
       "Fee projections are modelled at full capture: they assume all pool volume transacts through the position's range. Measured against route-level simulation, realised capture was materially lower. Every projection on this site is an upper bound.",
     ],
   },

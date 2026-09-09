@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { FAQ_HEADING, FAQS } from "@/content/landing";
+import { SectionRule } from "@/components/ui/SectionRule";
 
 /**
  * Disclosures, open by default — these are what someone should read before
@@ -8,7 +9,8 @@ import { FAQ_HEADING, FAQS } from "@/content/landing";
  */
 export function Straight() {
   return (
-    <section id="risk" className="border-t border-rule py-xxl">
+    <section id="risk" className="relative py-xxl">
+      <SectionRule delay={-7.4} />
       <h2 className="type-h2 text-[28px] text-balance text-text-primary sm:text-[36px]">
         {FAQ_HEADING}
       </h2>

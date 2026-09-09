@@ -1,9 +1,11 @@
 import { SIGNALS } from "@/content/docs";
+import { SectionRule } from "@/components/ui/SectionRule";
 
 /** What the desk watches but does not automatically act on. */
 export function Signals() {
   return (
-    <section id="signals" className="border-t border-rule py-xxl">
+    <section id="signals" className="relative py-xxl">
+      <SectionRule delay={-1.6} />
       <div className="flex flex-col gap-12 lg:flex-row">
         <div className="flex shrink-0 items-start gap-6 lg:w-[276px]">
           <span className="type-label text-brand-primary">#</span>

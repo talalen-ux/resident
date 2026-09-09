@@ -1,4 +1,5 @@
 import { CYCLE } from "@/content/docs";
+import { SectionRule } from "@/components/ui/SectionRule";
 
 /**
  * The capital cycle. This is a genuine sequence — fee flow only becomes a payout
@@ -7,7 +8,8 @@ import { CYCLE } from "@/content/docs";
  */
 export function Cycle() {
   return (
-    <section id="cycle" className="border-t border-rule py-xxl">
+    <section id="cycle" className="relative py-xxl">
+      <SectionRule delay={-3.8} />
       <div className="flex items-center gap-6 pb-16">
         <span className="type-eyebrow text-brand-primary">./</span>
         <h2 className="type-eyebrow text-text-primary">

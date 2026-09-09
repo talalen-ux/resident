@@ -1,9 +1,11 @@
 import { FOOTER_NOTE } from "@/content/landing";
+import { SectionRule } from "@/components/ui/SectionRule";
 
 /** Risk note, copyright, follow prompt. */
 export function SiteFooter() {
   return (
-    <footer className="flex flex-col gap-6 border-t border-rule py-10">
+    <footer className="flex flex-col gap-6 relative py-10">
+      <SectionRule delay={-12.9} />
       <p className="type-body-sm max-w-[620px] text-text-secondary">
         {FOOTER_NOTE}
       </p>

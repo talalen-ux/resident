@@ -1,10 +1,12 @@
 import { PillarIcon } from "@/components/ui/PillarIcon";
 import { PILLARS } from "@/content/docs";
+import { SectionRule } from "@/components/ui/SectionRule";
 
 /** The three commitments the rest of the page substantiates. */
 export function Pillars() {
   return (
-    <section className="border-t border-rule py-xxl">
+    <section className="relative py-xxl">
+      <SectionRule delay={-4.3} />
       <div className="flex flex-col gap-12 lg:flex-row">
         {PILLARS.map((item) => (
           <div key={item.eyebrow} className="flex flex-1 flex-col gap-l">

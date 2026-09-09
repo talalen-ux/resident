@@ -1,15 +1,17 @@
 import { METHOD } from "@/content/docs";
+import { SectionRule } from "@/components/ui/SectionRule";
 
 /** The method, argued in order. Each step keeps its own anchor. */
 export function Method() {
   return (
     <>
-      {METHOD.map((section) => (
+      {METHOD.map((section, i) => (
         <section
           key={section.id}
           id={section.id}
-          className="border-t border-rule py-xxl"
+          className="relative py-xxl"
         >
+          <SectionRule delay={-5.5 - i * 2.3} />
           <div className="flex flex-col gap-12 lg:flex-row">
             <div className="flex shrink-0 items-start gap-6 lg:w-[276px]">
               <span className="type-label text-brand-primary tabular-nums">

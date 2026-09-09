@@ -361,3 +361,154 @@ html:has(#intro):not(:has(#main:target)) {
     --spacing-l: 24px;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   The section rule, and the mark that eats it.
+
+   Three animations on one clock. The line is clipped from the left, the track
+   carrying the mark translates the full width of the rule, and the jaws chomp
+   on their own faster cycle. Clip and travel share a duration and a timing
+   function so the mark's mouth always sits exactly on the eaten edge — if they
+   ever drift apart, the mark appears to eat air.
+
+   The track exists so the travel can be a percentage transform (relative to the
+   rule's own width) rather than an animated `left`, which would lay out every
+   frame.
+   --------------------------------------------------------------------------- */
+@layer components {
+  .rule-eat {
+    /* Absolute by default: the rule is the top edge of the section it sits in,
+       and taking it out of flow keeps it from becoming a flex or grid item in
+       the many sections that are one or the other. */
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    display: block;
+    height: 1px;
+  }
+
+  .rule-eat__line {
+    position: absolute;
+    inset: 0;
+    background: var(--color-rule);
+
+    /* The bite is a gap in a mask that travels with the mark, not a clip that
+       erases everything behind it. Eating the whole rule and refilling it at
+       the end of the cycle leaves the section looking like it has lost its top
+       edge for seconds at a time; a trailing gap reads as the same thing and
+       the rule is never mostly missing.
+
+       The mask is twice the rule's width so its midpoint can be walked across
+       by animating mask-position from 100% to 0%: at position P the midpoint
+       sits at (1 − P) of the rule, which is exactly where the track puts the
+       mark. The transparent band runs from 37.5% to 50% of the mask — an
+       eighth of the mask, so a quarter of the rule — and therefore trails the
+       mark rather than leading it. */
+    --bite: linear-gradient(
+      to right,
+      #000 0 37.5%,
+      transparent 37.5% 50%,
+      #000 50% 100%
+    );
+    -webkit-mask-image: var(--bite);
+    mask-image: var(--bite);
+    -webkit-mask-size: 200% 100%;
+    mask-size: 200% 100%;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+    animation: rule-eat-bite 14s linear infinite;
+    animation-delay: var(--rule-delay, 0s);
+  }
+
+  .rule-eat__track {
+    position: absolute;
+    inset: 0;
+    animation: rule-eat-travel 14s linear infinite;
+    animation-delay: var(--rule-delay, 0s);
+  }
+
+  .rule-eat__mark {
+    position: absolute;
+    top: 50%;
+    left: 0;
+    display: block;
+    width: 20px;
+    height: 20px;
+    transform: translate(-50%, -50%);
+  }
+
+  .rule-eat__mark svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+
+  .rule-eat__jaw {
+    /* Hinged at the left edge, on the reference line, so the mouth opens
+       forward into the part of the rule that has not been eaten yet. */
+    transform-box: view-box;
+    transform-origin: 4px 18px;
+    animation: rule-chomp 0.6s ease-in-out infinite alternate;
+  }
+
+  .rule-eat__jaw--lower {
+    animation-name: rule-chomp-lower;
+  }
+}
+
+@keyframes rule-eat-bite {
+  from {
+    -webkit-mask-position: 100% 0;
+    mask-position: 100% 0;
+  }
+  to {
+    -webkit-mask-position: 0% 0;
+    mask-position: 0% 0;
+  }
+}
+
+@keyframes rule-eat-travel {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes rule-chomp {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(-14deg);
+  }
+}
+
+@keyframes rule-chomp-lower {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(14deg);
+  }
+}
+
+/* Motion is decoration here. Without it the rule is still a rule. */
+@media (prefers-reduced-motion: reduce) {
+  .rule-eat__line {
+    animation: none;
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+
+  .rule-eat__track,
+  .rule-eat__jaw {
+    animation: none;
+  }
+
+  .rule-eat__mark {
+    display: none;
+  }
+}

@@ -3,13 +3,15 @@
 import { useState } from "react";
 
 import { FAQS } from "@/content/docs";
+import { SectionRule } from "@/components/ui/SectionRule";
 
 /** Every question here is answered by the method above. */
 export function Faqs() {
   const [open, setOpen] = useState<number | null>(0);
 
   return (
-    <section id="faqs" className="border-t border-rule pt-xl pb-xxl">
+    <section id="faqs" className="relative pt-xl pb-xxl">
+      <SectionRule delay={-11.4} />
       <div className="flex flex-col gap-12 lg:flex-row">
         <div className="flex shrink-0 items-start gap-6 lg:w-[600px]">
           <span className="type-label text-brand-primary">#</span>

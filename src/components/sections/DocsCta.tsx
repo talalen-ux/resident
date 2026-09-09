@@ -1,11 +1,13 @@
 import Link from "next/link";
 
 import { DOCS_BLURB } from "@/content/docs";
+import { SectionRule } from "@/components/ui/SectionRule";
 
 /** Documentation prompt. */
 export function DocsCta() {
   return (
-    <section className="flex flex-col gap-8 border-t border-rule py-xl lg:flex-row lg:gap-12">
+    <section className="flex flex-col gap-8 relative py-xl lg:flex-row lg:gap-12">
+      <SectionRule delay={-10.7} />
       <div className="flex items-center gap-6 lg:w-[600px]">
         <span className="type-label text-brand-primary">&gt;</span>
         <span className="type-label text-text-primary">Documentation</span>

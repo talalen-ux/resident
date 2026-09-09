@@ -1,9 +1,13 @@
 import { Bands, total } from "@/components/positions/Bands";
+import { PoolCard } from "@/components/positions/PoolCard";
+import { fixtureCards } from "@/lib/desk/cards";
+import { feedStatus } from "@/lib/desk/telemetry";
 import { HeroBand } from "@/components/layout/HeroBand";
 import { Container } from "@/components/layout/Container";
 import { SiteFooter } from "@/components/sections/SiteFooter";
 import { SiteHeader } from "@/components/sections/SiteHeader";
 import { getAdapter, timeAgo, usd } from "@/lib/desk";
+import { SectionRule } from "@/components/ui/SectionRule";
 
 export const metadata = {
   title: "Positions",
@@ -42,6 +46,11 @@ export default async function PositionsPage() {
   const { bands, ledger } = snap;
   const dp = snap.vault.payoutAsset.decimals;
 
+  const cards = fixtureCards();
+  // Zero is the truth: no keeper has ever run, and the page says so rather
+  // than showing a live-looking status line above illustrative figures.
+  const feed = feedStatus(0, new Date(snap.readAt).getTime());
+
   const deployed = total(bands, "capital");
   const bandFees = total(bands, "feesEarned");
   const inRange = bands.filter((b) => b.inRange).length;
@@ -78,7 +87,8 @@ export default async function PositionsPage() {
         </p>
       ) : null}
 
-      <section className="flex flex-wrap gap-x-16 gap-y-8 border-t border-rule py-10">
+      <section className="flex flex-wrap gap-x-16 gap-y-8 relative py-10">
+        <SectionRule delay={-5.1} />
         <Figure
           value={usd(ledger.realized, dp)}
           label="Total fees earned"
@@ -101,7 +111,27 @@ export default async function PositionsPage() {
         />
       </section>
 
-      <section className="flex flex-col gap-6 pb-xxl">
+      <section className="relative flex flex-col gap-6 py-10">
+        <SectionRule delay={-9.4} />
+        <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2">
+          <h2 className="type-h2 text-[28px] text-text-primary sm:text-[36px]">
+            The desk
+          </h2>
+          {/* The keeper's own status, not the page's. A dashboard whose keeper
+              died an hour ago looks exactly like one whose pools are quiet. */}
+          <span className="type-body-sm text-text-secondary">
+            Keeper {feed.live ? feed.note : `— ${feed.note}`}
+          </span>
+        </div>
+        <div className="flex flex-col">
+          {cards.map((card) => (
+            <PoolCard key={card.address} card={card} />
+          ))}
+        </div>
+      </section>
+
+      <section className="relative flex flex-col gap-6 py-10 pb-xxl">
+        <SectionRule delay={-1.2} />
         <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2">
           <h2 className="type-h2 text-[28px] text-text-primary sm:text-[36px]">
             Open positions

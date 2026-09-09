@@ -1,4 +1,5 @@
 import { LP_BANDS, LP_EXPOSURE } from "@/content/docs";
+import { SectionRule } from "@/components/ui/SectionRule";
 
 /**
  * The two position shapes. They are alternatives, not stages, so they sit side
@@ -6,7 +7,8 @@ import { LP_BANDS, LP_EXPOSURE } from "@/content/docs";
  */
 export function LpDesk() {
   return (
-    <section id="lp-desk" className="border-t border-rule py-xxl">
+    <section id="lp-desk" className="relative py-xxl">
+      <SectionRule delay={-6.9} />
       <div className="flex flex-col gap-12 lg:flex-row">
         <div className="flex shrink-0 items-start gap-6 lg:w-[276px]">
           <span className="type-label text-brand-primary">#</span>
