@@ -128,9 +128,19 @@ const execute = VAULT
         const w = [...byName.values()].find((x) => x.key === key);
         return readV4Pool(reader, key, w.token0, w.token1);
       },
-      // Nothing has been funded, so nothing is held. A live desk reads the
-      // vault's balances here.
-      balanceOf: async () => 0n,
+      /**
+       * What the vault actually holds of a token, read from the chain.
+       *
+       * This caps every mint. Returning a number larger than the balance does
+       * not fail cheaply: the position manager pulls what the plan says and
+       * reverts after the gas is spent.
+       */
+      balanceOf: async (token) => {
+        const data =
+          "0x70a08231" + VAULT.slice(2).toLowerCase().padStart(64, "0");
+        const result = await rpc("eth_call", [{ to: token, data }, "latest"]);
+        return result && result !== "0x" ? BigInt(result) : 0n;
+      },
       receipt: receiptWaiter(rpc),
       signer,
       now: () => Math.floor(Date.now() / 1000),

@@ -197,5 +197,3 @@ receipt.
 
 - **An audit.** The vault holds fees under a keeper's instruction and can bridge.
 - **Solana.** `executor-v4.ts` is Robinhood Chain only. Meteora needs its own.
-- **Vault balances in the keeper.** `balanceOf` returns zero until it is wired to
-  read the vault, so sizing is capped at nothing until that is done.

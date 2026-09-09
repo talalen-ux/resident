@@ -86,8 +86,6 @@ What is still absent:
    recorded as a failure and stepped past; `Unconfirmed` leaves the intent in
    flight so the next interval has to go and look. Getting that backwards is
    how the same position gets opened twice.
-3. **Vault balances.** `balanceOf` in the keeper script returns zero, because
-   nothing is funded. A live desk reads the vault.
 
 ## The owner is a wallet you hold
 
