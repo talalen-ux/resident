@@ -1,5 +1,6 @@
 import { Container } from "@/components/layout/Container";
 import { Intro } from "@/components/landing/Intro";
+import { Edge } from "@/components/landing/Edge";
 import { Hero } from "@/components/landing/Hero";
 import { Payout } from "@/components/landing/Payout";
 import { Steps } from "@/components/landing/Steps";
@@ -9,8 +10,9 @@ import { SiteFooter } from "@/components/sections/SiteFooter";
 import { SiteHeader } from "@/components/sections/SiteHeader";
 
 /**
- * Four sections: what it does, how it works, how you get paid, and the
- * questions worth asking first. Everything longer lives at /docs.
+ * Five sections: what it does, how it works, what it does differently, how you
+ * get paid, and the questions worth asking first. Everything longer lives at
+ * /docs.
  */
 export default function Home() {
   return (
@@ -25,6 +27,7 @@ export default function Home() {
           <ChainStrip />
           <Hero />
           <Steps />
+          <Edge />
           <Payout />
           <Straight />
           <SiteFooter />

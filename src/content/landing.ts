@@ -18,7 +18,7 @@ export const TOKEN = "$RES";
 
 export const HERO = {
   headline: "The liquidity layer for tokenized equities.",
-  sub: "Concentrated liquidity, priced and placed where fee income exceeds the cost of holding it, across Robinhood Chain and Solana. Trading fees on $RES capitalize every position. Holders receive 15% of realized profit every 15 minutes, in USDG.",
+  sub: "Tokenized equity markets are thin enough that a five-figure order moves the price. Resident is the capital on the other side of that trade, across Robinhood Chain and Solana. Trading fees on $RES fund every position, and 15% of realized profit goes to holders in USDG every 15 minutes.",
   cta: "Get $RES",
   secondary: "Read the docs",
 };
@@ -30,25 +30,42 @@ export const HERO_STATS = [
 ];
 
 export const STEPS_HEADING =
-  "Fee income capitalizes the protocol. The protocol provides liquidity where fee income exceeds the cost of holding it.";
+  "$RES funds the positions. The positions pay $RES holders.";
 
 export const STEPS = [
   {
     n: "01",
     title: "Capitalization",
-    body: "Trading fees on $RES accrue to the protocol vault, which is the sole source of capital for its positions. Nothing is raised externally and nothing is held aside as treasury.",
+    body: "Trading fees on $RES accrue to the vault, and they are the only capital the protocol ever deploys. There is no raise, no treasury and no outside investor, so capacity is set by the token's own turnover and by nothing else.",
   },
   {
     n: "02",
     title: "Liquidity provision",
-    body: "Capital is deployed as concentrated liquidity in tokenized equity pools selected on depth and turnover. The protocol targets markets thin enough that a five-figure order moves the price, and active enough to pay continuous fee income.",
+    body: "That capital is placed as concentrated liquidity in the pools worth being in: thin enough that a five-figure position takes a real share of the flow, busy enough to pay continuously, and holding a range rather than falling through one.",
   },
   {
     n: "03",
     title: "Position management",
-    body: "A concentrated position earns only while price trades inside its range, so positions are re-centered as markets move. Positions that move against the protocol are held and re-centered rather than sold into thin liquidity.",
+    body: "A position earns only while price trades inside its range, so ranges are re-centered as markets move and retired when a pool stops paying for itself. Positions that move against the protocol are re-centered rather than sold into thin liquidity.",
   },
 ];
+
+export const EDGE_HEADING = "Three things this does differently.";
+
+export const EDGE = [
+  {
+    label: "Net, not yield",
+    body: "Every liquidity dashboard publishes fee income. Fees are the flattering half: a position can collect handsomely while the price move underneath it costs more than the fees bring in. Resident publishes fees less what the price move cost, over the same window, including when that number is negative.",
+  },
+  {
+    label: "Two chains, one ranking",
+    body: "A concentrated range on Robinhood Chain and a discrete-bin position on Solana earn in completely different ways, so ranking them on headline yield compares two numbers that do not mean the same thing. Both are priced into one figure that does, and capital only crosses when the edge covers the round trip.",
+  },
+  {
+    label: "Every threshold published",
+    body: "The conditions a pool has to clear, the width a position is given, the point at which it is retired: all of it is stated with its value in the docs, read from the code the protocol runs. Changing one is visible as a change.",
+  },
+] as const;
 
 export const PAYOUT = {
   headline: "Distributions",
