@@ -25,6 +25,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 
 import { FileJournal } from "../src/lib/keeper/journal-file.ts";
 import { DryRunSigner } from "../src/lib/keeper/signer.ts";
+import { addressOf, localSigner } from "../src/lib/keeper/signer-local.ts";
 import { dryRunExecutor } from "../src/lib/keeper/executor-dryrun.ts";
 import { makeV4Executor } from "../src/lib/keeper/executor-v4.ts";
 import { makeV4Reconciler } from "../src/lib/keeper/reconcile-v4.ts";
@@ -70,8 +71,28 @@ if (existsSync(CACHE)) {
 
 const source = new RpcPoolsSource(RPC, watched);
 const journal = new FileJournal(journalPath);
-const signer = new DryRunSigner();
 const rpc = jsonRpc(RPC);
+
+/**
+ * A key, or nothing.
+ *
+ * Without RESIDENT_KEEPER_KEY the loop builds every call and signs none of
+ * them, which is the mode to leave running for a week before any of this
+ * touches money. With one, it signs — and refuses mainnet unless
+ * RESIDENT_ALLOW_MAINNET says that is intended, checked against the chain id
+ * the node reports on every transaction rather than once at startup.
+ */
+const KEY = process.env.RESIDENT_KEEPER_KEY;
+const signer = KEY
+  ? localSigner({
+      rpc,
+      key: KEY,
+      allowMainnet: process.env.RESIDENT_ALLOW_MAINNET === "1",
+      expectedChainId: process.env.RESIDENT_CHAIN_ID
+        ? Number(process.env.RESIDENT_CHAIN_ID)
+        : undefined,
+    })
+  : new DryRunSigner();
 const reader = rpcReader(RPC);
 
 const VAULT = process.env.RESIDENT_VAULT;
@@ -178,6 +199,13 @@ const deps = {
 console.log(`  journal   ${journalPath}`);
 console.log(`  vault     ${VAULT ?? "unset (no calldata will be built)"}`);
 console.log(`  signer    ${signer.description}`);
+if (KEY) {
+  console.log(`  keeper    ${addressOf(KEY)}`);
+  console.log(
+    "            this address must be the vault's keeper and must NOT be its\n" +
+      "            owner. The loop checks both against the chain every tick.",
+  );
+}
 console.log(`  interval  ${intervalSeconds}s${once ? " (once)" : ""}`);
 console.log("");
 

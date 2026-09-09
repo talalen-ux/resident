@@ -13,7 +13,7 @@ repository has ever touched a live chain, signed a transaction, or held a key.
 | Component | Path | State |
 |---|---|---|
 | Custody contract | `contracts/ResidentVault.sol` | Complete, 40 tests on a local EVM, **unaudited** |
-| Strategy math | `src/lib/sim/` | Complete and tested (299 tests), **pure functions — decides nothing on its own** |
+| Strategy math | `src/lib/sim/` | Complete and tested (309 tests), **pure functions — decides nothing on its own** |
 | Chain constants | `src/lib/chain.ts` | Transcribed from official sources, **never checked against the chain** |
 | Token registry | `src/lib/tokens.ts` | 194 canonical tokens, checksums verified, addresses not read on-chain |
 | Keeper | `src/lib/keeper/` | Journal, reconciliation, sweep and retire rules, decision ordering, tick loop, ledger, **Robinhood Chain v4 executor**. **Dry run only: no signer** |
@@ -57,13 +57,29 @@ checks both and fails if either is missing.
 
 What is still absent:
 
-1. **A signer.** `tx.ts` assembles the transaction — nonce, fee ceiling, gas
-   estimate, chain id, all read from the node — and hands it to a `sign`
-   function. That function is the only place key material is touched and
-   nothing here implements one. Put a KMS or HSM behind it; do not put a key in
-   a file. `checkSigner` refuses to run as the vault owner and refuses a signer
-   that is not the vault's keeper, re-checked every interval because the keeper
-   can be rotated under a running process.
+1. **A signer, if you want one.** There are now two, and neither needs a KMS.
+
+   Without `RESIDENT_KEEPER_KEY` the loop builds every call and signs none of
+   them. That is the mode to leave running for a week first.
+
+   With one, `signer-local.ts` signs with a key held in the process. That is a
+   real trade and the note at the top of that file states it plainly: anyone who
+   can read the environment can take the key. What makes it survivable is the
+   vault. A stolen keeper key cannot withdraw, cannot add a venue or a bridge,
+   cannot raise a cap, and can be rotated away in one transaction that moves no
+   assets. It can still LOSE money through `exec` on an allowlisted venue, so
+   size the vault to what you would accept losing to a compromised container.
+
+   Guardrails, all tested: a malformed key is refused without the value
+   appearing in the error, mainnet is refused unless `RESIDENT_ALLOW_MAINNET=1`,
+   and the chain id is read from the node on every transaction rather than once
+   at startup, because an RPC URL is an environment variable and a keeper that
+   follows its RPC onto mainnet is the thing being prevented. `checkSigner`
+   refuses to run as the vault owner and refuses a signer that is not the
+   vault's keeper, re-checked every interval.
+
+   `tx.ts` still takes an arbitrary `sign` function, so moving this to a KMS
+   later changes nothing else about the deployment.
 2. **Solana.** `executor-v4.ts` is Robinhood Chain only. Meteora needs its own,
    to the same contract: if a call is broadcast and its outcome cannot be
    established, raise `Unconfirmed` rather than throwing. An ordinary error is
@@ -72,6 +88,26 @@ What is still absent:
    how the same position gets opened twice.
 3. **Vault balances.** `balanceOf` in the keeper script returns zero, because
    nothing is funded. A live desk reads the vault.
+
+## The owner is a wallet you hold
+
+The owner can withdraw every asset the vault holds, so it is the one role that
+must never be a key on a server. It is not one here: `npm run owner` prints the
+destination, value and calldata for every owner action and signs nothing.
+
+```bash
+npm run owner -- rotate-keeper 0xNEW
+npm run owner -- set-venue 0xPERMIT2 true
+npm run owner -- withdraw 0xUSDG 0xYOU 1000000000
+```
+
+Paste the result into a hardware wallet, a Safe, or the explorer's write tab.
+Run it with no arguments to list every action and what each one cannot be
+undone by.
+
+So the split is: **owner** is your wallet, capped by nothing, signing rarely and
+deliberately; **keeper** is a hot key in a container, capped by the contract,
+signing constantly. Two addresses, and the vault enforces that they are two.
 
 Reconciliation is a receipt lookup rather than a search: the broadcast hash is
 journalled at the moment the outcome becomes unknown, so the next tick fetches
