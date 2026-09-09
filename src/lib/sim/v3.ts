@@ -86,6 +86,84 @@ export function amount1Delta(sqrtA: bigint, sqrtB: bigint, liquidity: bigint): b
 }
 
 /** Price after adding `amountIn` of token0 (price falls). */
+/**
+ * Liquidity for a pair of token amounts across a range.
+ *
+ * The inverse of {@link amount0Delta} and {@link amount1Delta}, and the number a
+ * mint is actually denominated in: the position manager takes an L, not a pair
+ * of amounts. Which side binds depends on where the price sits relative to the
+ * range, and in range it is the smaller of the two, because the position cannot
+ * take more of either token than it was given.
+ */
+export function liquidityForAmounts(
+  sqrtPriceX96: bigint,
+  sqrtLower: bigint,
+  sqrtUpper: bigint,
+  amount0: bigint,
+  amount1: bigint,
+): bigint {
+  let a = sqrtLower;
+  let b = sqrtUpper;
+  if (a > b) [a, b] = [b, a];
+  if (b <= a) return 0n;
+
+  if (sqrtPriceX96 <= a) return liquidityForAmount0(a, b, amount0);
+  if (sqrtPriceX96 >= b) return liquidityForAmount1(a, b, amount1);
+
+  const l0 = liquidityForAmount0(sqrtPriceX96, b, amount0);
+  const l1 = liquidityForAmount1(a, sqrtPriceX96, amount1);
+  return l0 < l1 ? l0 : l1;
+}
+
+/** L that `amount0` of token0 buys between two sqrt prices. */
+export function liquidityForAmount0(sqrtA: bigint, sqrtB: bigint, amount0: bigint): bigint {
+  if (sqrtB <= sqrtA) return 0n;
+  return (amount0 * ((sqrtA * sqrtB) / Q96)) / (sqrtB - sqrtA);
+}
+
+/** L that `amount1` of token1 buys between two sqrt prices. */
+export function liquidityForAmount1(sqrtA: bigint, sqrtB: bigint, amount1: bigint): bigint {
+  if (sqrtB <= sqrtA) return 0n;
+  return (amount1 * Q96) / (sqrtB - sqrtA);
+}
+
+/**
+ * The tick at a human-readable price, inverting {@link priceFromSqrt}.
+ *
+ * Decimals are the whole of the difference between a price a person quotes and
+ * the ratio the pool stores, and getting them backwards puts a position at a
+ * price off by a factor of a trillion rather than off by a little. They are
+ * required rather than defaulted for that reason.
+ */
+export function tickAtPrice(
+  price: number,
+  token0Decimals: number,
+  token1Decimals: number,
+): number {
+  if (!(price > 0)) throw new Error("price must be positive");
+  const raw = price * 10 ** (token1Decimals - token0Decimals);
+  return Math.round(Math.log(raw) / Math.log(1.0001));
+}
+
+/**
+ * The nearest initialisable tick, rounded the way the caller needs.
+ *
+ * "nearest" is wrong for a range bound: rounding a lower bound up and an upper
+ * bound down narrows the position past what was asked for, which is the sort of
+ * error that shows up as slightly worse fills forever rather than as a failure.
+ */
+export function alignTick(
+  tick: number,
+  spacing: number,
+  toward: "down" | "up" | "nearest" = "nearest",
+): number {
+  if (spacing <= 0) return tick;
+  const q = tick / spacing;
+  const n =
+    toward === "down" ? Math.floor(q) : toward === "up" ? Math.ceil(q) : Math.round(q);
+  return n * spacing;
+}
+
 export function nextSqrtPriceFromAmount0(
   sqrtP: bigint,
   liquidity: bigint,

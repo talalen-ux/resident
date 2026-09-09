@@ -277,11 +277,12 @@ export function decide(
       pool: target.pool.name,
       venueKind: target.pool.kind,
       capital,
-      // Bounds come from the venue at submission time — the model chose the
+      // Bounds come from the venue at submission time. The model chose the
       // WIDTH, and the price it is centred on must be the one at the moment the
-      // position is opened, not the one this tick was priced from.
+      // position is opened rather than the one this tick was priced from.
       lower: 0,
       upper: 0,
+      halfWidth: target.halfWidth,
       shape: target.shape,
       binCount: target.binCount,
       reason: `${target.reason}; ${describeShape(target)}`,

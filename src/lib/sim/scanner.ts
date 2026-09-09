@@ -95,6 +95,14 @@ export type ScanResult = {
   capital: number;
   netRate: number;
   netApr: number;
+  /**
+   * Half-width of the position, as a fraction of price.
+   *
+   * The model picks this and nothing downstream can re-derive it, because it
+   * comes from the pool's own volatility over a horizon. Carrying the rate
+   * without the width would leave whatever opens the position to guess.
+   */
+  halfWidth: number;
   /** DLMM only: the width, shape and side that won the search. */
   binCount?: number;
   shape?: LiquidityShape;
@@ -196,6 +204,7 @@ export function pricePool(
       capital,
       netRate: verdict.netRate,
       netApr: verdict.netApr,
+      halfWidth: verdict.halfWidth,
       ranging,
       eligible,
       blockedBy,
@@ -224,6 +233,7 @@ export function pricePool(
     capital,
     netRate: verdict.netRate,
     netApr: verdict.netApr,
+    halfWidth: verdict.halfWidth,
     binCount,
     shape,
     side,

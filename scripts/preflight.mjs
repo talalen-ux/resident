@@ -19,7 +19,7 @@
 import { Interface } from "ethers";
 
 import { compile } from "../test/harness.mjs";
-import { requireChain } from "../src/lib/chain.ts";
+import { UNISWAP, requireChain } from "../src/lib/chain.ts";
 
 const ok = (m) => `  \x1b[32m✓\x1b[0m ${m}`;
 const bad = (m) => `  \x1b[31m✗\x1b[0m ${m}`;
@@ -183,9 +183,30 @@ if (!venues.length) {
   }
 }
 
+// --- what a v4 mint needs, specifically -------------------------------------
+//
+// The position manager does not pull tokens with a plain ERC20 allowance. It
+// calls permit2.transferFrom(payer, poolManager, amount, token), so the vault
+// has to be able to call BOTH: Permit2, to grant it an allowance, and the
+// position manager, to mint. Miss either and the mint reverts after the gas is
+// spent, which is a failure that looks like a bug in the encoding.
+console.log("\nUniswap v4:");
+for (const [label, address] of [
+  ["Permit2", process.env.RESIDENT_PERMIT2 ?? UNISWAP.permit2],
+  ["v4 position manager", process.env.RESIDENT_V4_POSITION_MANAGER ?? UNISWAP.v4PositionManager],
+]) {
+  try {
+    const allowed = await read("isVenue", [address]);
+    if (allowed) console.log(ok(`${label} ${address} allowlisted`));
+    else fail(`${label} ${address} is NOT allowlisted — every mint will revert`);
+  } catch (err) {
+    fail(`could not read ${label}: ${err.message}`);
+  }
+}
+
 // --- the thing no chain call can answer -------------------------------------
 console.log("\nOff-chain:");
-flag("no keeper process ships in this repository. A funded vault with nothing driving it holds money and does nothing");
+flag("the keeper runs but signs nothing: no signing service is configured in this repository");
 flag("the contracts have not been audited");
 
 console.log(

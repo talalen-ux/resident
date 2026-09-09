@@ -13,10 +13,10 @@ repository has ever touched a live chain, signed a transaction, or held a key.
 | Component | Path | State |
 |---|---|---|
 | Custody contract | `contracts/ResidentVault.sol` | Complete, 40 tests on a local EVM, **unaudited** |
-| Strategy math | `src/lib/sim/` | Complete and tested (258 tests), **pure functions — decides nothing on its own** |
+| Strategy math | `src/lib/sim/` | Complete and tested (299 tests), **pure functions — decides nothing on its own** |
 | Chain constants | `src/lib/chain.ts` | Transcribed from official sources, **never checked against the chain** |
 | Token registry | `src/lib/tokens.ts` | 194 canonical tokens, checksums verified, addresses not read on-chain |
-| Keeper | `src/lib/keeper/` | Journal, reconciliation, sweep and retire rules, decision ordering, tick loop, ledger. **Dry run only — no signer, no venue adapter** |
+| Keeper | `src/lib/keeper/` | Journal, reconciliation, sweep and retire rules, decision ordering, tick loop, ledger, **Robinhood Chain v4 executor**. **Dry run only: no signer** |
 | Read-only adapters | `src/lib/desk/` | Reads vault state over JSON-RPC. Reads only |
 | Site + dashboards | `src/app/` | Runs on fixtures until a vault is configured, and says so on screen |
 | Chain verifier | `scripts/verify-chain.mjs` | **Run this first.** See below |
@@ -34,20 +34,49 @@ earning, sweep what is worth sweeping, re-centre what has drifted, deploy idle
 capital, then consider crossing a chain. See `src/lib/keeper/decide.ts`.
 
 **It signs nothing, and there is no flag in this repository that changes that.**
-Two pieces are deliberately absent:
 
-1. **A signer.** `src/lib/keeper/signer.ts` defines the interface and ships a
-   dry run. Put a KMS or HSM behind `RemoteSigner`; do not put a key in a file.
-   `checkSigner` refuses to run as the vault owner and refuses a signer that is
-   not the vault's keeper, and it is re-checked every interval because the
-   keeper can be rotated under a running process.
-2. **A venue executor.** Something that turns an `Intent` into a call on the v4
-   position manager or on Meteora. `executor-dryrun.ts` is the shape it has to
-   have. The one contract it must honour: if it submits a call and cannot then
-   say whether it landed, it raises `Unconfirmed` rather than throwing — an
-   error is recorded as a failure and moved past, and `Unconfirmed` leaves the
-   intent in flight so the next interval has to go and look. Getting this wrong
-   is how the same position gets opened twice.
+Robinhood Chain execution is built. `executor-v4.ts` turns an intent into
+calldata for the v4 position manager, always through `vault.exec` and never
+directly at a venue:
+
+| Intent | v4 actions | Note |
+|---|---|---|
+| open | `MINT_POSITION`, `SETTLE_PAIR` | band centred on the price read at submission, not the price the tick was decided from |
+| sweep | `DECREASE_LIQUIDITY` (zero), `TAKE_PAIR` | v4 has no collect action; a decrease of nothing is how it is spelled |
+| close | `BURN_POSITION`, `TAKE_PAIR` | burn decreases to zero first, so it is one action |
+| rebalance | `BURN_POSITION`, `MINT_POSITION`, `CLOSE_CURRENCY` ×2 | **one unlock.** Two transactions can half-succeed and leave the desk holding inventory with no position |
+
+Action codes and parameter tuples are transcribed from @uniswap/v4-periphery
+1.0.3 and checked by decoding the calldata back in the tests, because a wrong
+code does not fail loudly — it performs a different action.
+
+**Before a mint can settle, allowlist two addresses, not one.** The position
+manager pulls tokens through Permit2, so the vault needs to call Permit2 (to
+grant it an allowance) and the position manager (to mint). `npm run preflight`
+checks both and fails if either is missing.
+
+What is still absent:
+
+1. **A signer.** `tx.ts` assembles the transaction — nonce, fee ceiling, gas
+   estimate, chain id, all read from the node — and hands it to a `sign`
+   function. That function is the only place key material is touched and
+   nothing here implements one. Put a KMS or HSM behind it; do not put a key in
+   a file. `checkSigner` refuses to run as the vault owner and refuses a signer
+   that is not the vault's keeper, re-checked every interval because the keeper
+   can be rotated under a running process.
+2. **Solana.** `executor-v4.ts` is Robinhood Chain only. Meteora needs its own,
+   to the same contract: if a call is broadcast and its outcome cannot be
+   established, raise `Unconfirmed` rather than throwing. An ordinary error is
+   recorded as a failure and stepped past; `Unconfirmed` leaves the intent in
+   flight so the next interval has to go and look. Getting that backwards is
+   how the same position gets opened twice.
+3. **Vault balances.** `balanceOf` in the keeper script returns zero, because
+   nothing is funded. A live desk reads the vault.
+
+Reconciliation is a receipt lookup rather than a search: the broadcast hash is
+journalled at the moment the outcome becomes unknown, so the next tick fetches
+one receipt and knows. A transaction still pending stops the keeper rather than
+being decided either way.
 
 Leave the dry run pointed at a live RPC for a week before either exists. The
 journal it produces says which positions the desk would have opened and when it
@@ -149,8 +178,9 @@ source's ABI, that owner and keeper are different addresses, that the split is
 15%, that the ledger is zeroed, that the distribution cap is set, and that any
 allowlisted bridge has a cap you meant.
 
-**What it cannot check, and what stops this stage today:** the keeper runs but
-signs nothing, so nothing opens a position or calls `recordRealized`. A funded
+**What it cannot check, and what stops this stage today:** the keeper builds
+every call and signs none of them, so nothing opens a position or calls
+`recordRealized`. A funded
 vault with nothing driving it holds money and does nothing — so funding it now
 buys no information that stage 2 does not give you for free. Testnet is chain
 46630 and the same commands work there.

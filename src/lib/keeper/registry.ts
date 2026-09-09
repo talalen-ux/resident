@@ -78,7 +78,9 @@ export function replay(records: JournalRecord[]): KeeperState {
       continue;
     }
 
-    if (record.kind === "mark") continue;
+    // Neither of these settles anything. A broadcast says a hash exists to look
+    // up, which is exactly why the intent stays in flight.
+    if (record.kind === "mark" || record.kind === "broadcast") continue;
 
     if (record.kind !== "settled") continue;
 
@@ -211,9 +213,20 @@ export function intentId(kind: string, now = Date.now()): string {
  * the only honest answer available.
  */
 export class Unconfirmed extends Error {
-  constructor(message: string) {
+  /**
+   * The transaction that was broadcast, when there is one.
+   *
+   * Without it, reconciling an in-flight intent means searching the chain for
+   * something that may not be there. With it, the next tick fetches one receipt
+   * and knows. It is journalled separately from the settlement precisely
+   * because the intent is NOT settled.
+   */
+  readonly txHash: string | undefined;
+
+  constructor(message: string, txHash?: string) {
     super(message);
     this.name = "Unconfirmed";
+    this.txHash = txHash;
   }
 }
 
@@ -244,9 +257,19 @@ export async function submit(
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (error instanceof Unconfirmed) {
-      // Deliberately no settlement record. The intent stays in flight and the
+      // Deliberately no SETTLEMENT record: the intent stays in flight and the
       // next reconcile has to look at the chain before the keeper decides
-      // anything else. See the note on Unconfirmed.
+      // anything else. What is written down is the hash, which is not a
+      // settlement and does not resolve anything — it is the difference between
+      // reconciling by fetching one receipt and reconciling by searching.
+      if (error.txHash) {
+        await journal.append({
+          at: now(),
+          kind: "broadcast",
+          intentId: intent.id,
+          txHash: error.txHash,
+        });
+      }
       return { ok: false, error: message, unresolved: true };
     }
     // A call that failed to submit did nothing, so closing the intent out here

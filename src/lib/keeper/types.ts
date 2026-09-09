@@ -55,8 +55,16 @@ export type Intent =
       pool: string;
       venueKind: VenueKind;
       capital: number;
+      /**
+       * Price bounds, when the caller already knows them. Zero means the
+       * executor sets them from `halfWidth` at the price it actually sees,
+       * which is the normal case: a band centred on a price from a tick ago is
+       * a band centred on the wrong price.
+       */
       lower: number;
       upper: number;
+      /** Half-width as a fraction of price, from the model. */
+      halfWidth: number;
       shape?: LiquidityShape;
       binCount?: number;
       reason: string;
@@ -119,7 +127,15 @@ export type JournalRecord =
       /** Pool price at the mark, in quote units. */
       price: number;
     }
-  | { at: number; kind: "heartbeat"; ok: boolean; note: string };
+  | { at: number; kind: "heartbeat"; ok: boolean; note: string }
+  /**
+   * A call went out and its outcome is not known yet.
+   *
+   * Not a settlement: the intent is still in flight after this, and replay
+   * treats it as such. It exists so reconciliation can fetch one receipt
+   * instead of searching the chain for a position it might not have opened.
+   */
+  | { at: number; kind: "broadcast"; intentId: string; txHash: string };
 
 /** Everything the keeper believes, rebuilt by replaying the journal. */
 export type KeeperState = {

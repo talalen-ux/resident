@@ -26,6 +26,11 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { FileJournal } from "../src/lib/keeper/journal-file.ts";
 import { DryRunSigner } from "../src/lib/keeper/signer.ts";
 import { dryRunExecutor } from "../src/lib/keeper/executor-dryrun.ts";
+import { makeV4Executor } from "../src/lib/keeper/executor-v4.ts";
+import { makeV4Reconciler } from "../src/lib/keeper/reconcile-v4.ts";
+import { jsonRpc, receiptWaiter } from "../src/lib/keeper/tx.ts";
+import { readV4Pool, rpcReader } from "../src/lib/sim/v4.ts";
+import { UNISWAP } from "../src/lib/chain.ts";
 import { DEFAULT_TICK, tick } from "../src/lib/keeper/loop.ts";
 import { loadState } from "../src/lib/keeper/registry.ts";
 import { ledgerFrom, ledgerTotals } from "../src/lib/keeper/ledger.ts";
@@ -66,7 +71,47 @@ if (existsSync(CACHE)) {
 const source = new RpcPoolsSource(RPC, watched);
 const journal = new FileJournal(journalPath);
 const signer = new DryRunSigner();
-const execute = dryRunExecutor();
+const rpc = jsonRpc(RPC);
+const reader = rpcReader(RPC);
+
+const VAULT = process.env.RESIDENT_VAULT;
+
+/**
+ * With a vault address the desk builds the real thing: real pool state, real
+ * tick maths, real calldata for the position manager, all of it journalled.
+ * The signer is still a dry run, so none of it is sent. That is the run worth
+ * leaving on for a week before a key exists anywhere, because it is the only
+ * way to find out that the encoding is wrong without paying for the discovery.
+ *
+ * Without a vault address there is nothing to encode a call against, so the
+ * loop falls back to an executor that answers without building anything.
+ */
+const byName = new Map(
+  watched.map((w) => [`${w.token0.symbol}/${w.token1.symbol}`, w]),
+);
+
+const execute = VAULT
+  ? makeV4Executor({
+      vault: VAULT,
+      positionManager: process.env.RESIDENT_V4_POSITION_MANAGER ?? UNISWAP.v4PositionManager,
+      permit2: process.env.RESIDENT_PERMIT2 ?? UNISWAP.permit2,
+      poolFor: (name) => {
+        const w = byName.get(name);
+        return w ? { key: w.key, state: null } : null;
+      },
+      positionFor: () => null,
+      readPool: (key) => {
+        const w = [...byName.values()].find((x) => x.key === key);
+        return readV4Pool(reader, key, w.token0, w.token1);
+      },
+      // Nothing has been funded, so nothing is held. A live desk reads the
+      // vault's balances here.
+      balanceOf: async () => 0n,
+      receipt: receiptWaiter(rpc),
+      signer,
+      now: () => Math.floor(Date.now() / 1000),
+    })
+  : dryRunExecutor();
 
 /**
  * Turn live pool observations into the board the scanner ranks.
@@ -106,9 +151,14 @@ function toScannedPools(observations) {
 const deps = {
   signer,
   execute,
-  // Nothing was ever signed, so nothing can be in flight. A live executor
-  // replaces this with a lookup against the venue.
-  reconcile: async () => ({ found: null }),
+  reconcile: VAULT
+    ? makeV4Reconciler({
+        journal,
+        receipt: receiptWaiter(rpc, 0),
+        positionManager: process.env.RESIDENT_V4_POSITION_MANAGER ?? UNISWAP.v4PositionManager,
+        vault: VAULT,
+      })
+    : async () => ({ found: null }),
   observe: async () => {
     const observations = await source.observe();
     return {
@@ -126,6 +176,7 @@ const deps = {
 };
 
 console.log(`  journal   ${journalPath}`);
+console.log(`  vault     ${VAULT ?? "unset (no calldata will be built)"}`);
 console.log(`  signer    ${signer.description}`);
 console.log(`  interval  ${intervalSeconds}s${once ? " (once)" : ""}`);
 console.log("");
