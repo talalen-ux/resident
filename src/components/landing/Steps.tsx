@@ -4,7 +4,7 @@ import { SectionRule } from "@/components/ui/SectionRule";
 /** Three steps. It is a sequence, so it is numbered. */
 export function Steps() {
   return (
-    <section id="how" className="relative py-xxl">
+    <section id="how" className="hover-lime relative py-xxl">
       <SectionRule delay={-9.8} />
       <h2 className="type-h2 mx-auto max-w-[560px] text-[28px] text-balance text-text-primary sm:text-[36px] text-center">
         {STEPS_HEADING}

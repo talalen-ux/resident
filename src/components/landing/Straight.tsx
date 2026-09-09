@@ -9,7 +9,7 @@ import { SectionRule } from "@/components/ui/SectionRule";
  */
 export function Straight() {
   return (
-    <section id="risk" className="relative py-xxl">
+    <section id="risk" className="hover-lime relative py-xxl">
       <SectionRule delay={-7.4} />
       <h2 className="type-h2 text-[28px] text-balance text-text-primary sm:text-[36px]">
         {FAQ_HEADING}
