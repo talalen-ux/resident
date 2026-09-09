@@ -29,6 +29,7 @@ export function SectionRule({
     >
       <span className="rule-eat__line" />
       <span className="rule-eat__track">
+        <span className="rule-eat__bite" />
         <span className="rule-eat__mark">
           <svg viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
             {/* Each jaw is hinged by nesting rather than by transform-origin

@@ -365,15 +365,19 @@ html:has(#intro):not(:has(#main:target)) {
 /* ---------------------------------------------------------------------------
    The section rule, and the mark that eats it.
 
-   Three animations on one clock. The line is clipped from the left, the track
-   carrying the mark translates the full width of the rule, and the jaws chomp
-   on their own faster cycle. Clip and travel share a duration and a timing
-   function so the mark's mouth always sits exactly on the eaten edge — if they
-   ever drift apart, the mark appears to eat air.
+   One transform drives everything. The track spans the rule and translates
+   across it; the mark and the bite are both children of the track, so they
+   cannot drift apart no matter what the timing does. An earlier version put
+   the bite in a mask and walked mask-position on a second animation with a
+   matching duration, which held only for as long as the two stayed identical
+   and, worse, tied the travel to percentages of the rule's width. That made
+   the endpoints unadjustable: the mark's centre had to sit exactly on the
+   rule's first and last pixel, so half of it hung outside at both ends and it
+   was visibly cut in two once a cycle.
 
-   The track exists so the travel can be a percentage transform (relative to the
-   rule's own width) rather than an animated `left`, which would lay out every
-   frame.
+   The bite is an opaque block in the page's own ground rather than a hole in
+   a mask. It is the one thing here that has to know what it is drawn on, so
+   it takes --rule-ground, which a section on a different ground can override.
    --------------------------------------------------------------------------- */
 @layer components {
   .rule-eat {
@@ -386,39 +390,18 @@ html:has(#intro):not(:has(#main:target)) {
     right: 0;
     display: block;
     height: 1px;
+
+    /* Half the mark's width. The travel is inset by this at both ends so the
+       mark is always whole and always inside the rule. */
+    --rule-inset: 10px;
+    /* How much of the rule is missing behind the mark at any moment. */
+    --rule-bite: 260px;
   }
 
   .rule-eat__line {
     position: absolute;
     inset: 0;
     background: var(--color-rule);
-
-    /* The bite is a gap in a mask that travels with the mark, not a clip that
-       erases everything behind it. Eating the whole rule and refilling it at
-       the end of the cycle leaves the section looking like it has lost its top
-       edge for seconds at a time; a trailing gap reads as the same thing and
-       the rule is never mostly missing.
-
-       The mask is twice the rule's width so its midpoint can be walked across
-       by animating mask-position from 100% to 0%: at position P the midpoint
-       sits at (1 − P) of the rule, which is exactly where the track puts the
-       mark. The transparent band runs from 37.5% to 50% of the mask — an
-       eighth of the mask, so a quarter of the rule — and therefore trails the
-       mark rather than leading it. */
-    --bite: linear-gradient(
-      to right,
-      #000 0 37.5%,
-      transparent 37.5% 50%,
-      #000 50% 100%
-    );
-    -webkit-mask-image: var(--bite);
-    mask-image: var(--bite);
-    -webkit-mask-size: 200% 100%;
-    mask-size: 200% 100%;
-    -webkit-mask-repeat: no-repeat;
-    mask-repeat: no-repeat;
-    animation: rule-eat-bite 14s linear infinite;
-    animation-delay: var(--rule-delay, 0s);
   }
 
   .rule-eat__track {
@@ -426,6 +409,20 @@ html:has(#intro):not(:has(#main:target)) {
     inset: 0;
     animation: rule-eat-travel 14s linear infinite;
     animation-delay: var(--rule-delay, 0s);
+  }
+
+  .rule-eat__bite {
+    position: absolute;
+    left: 0;
+    top: 50%;
+    width: var(--rule-bite);
+    /* Taller than the hairline so no antialiased edge of it survives. */
+    height: 3px;
+    /* Sits behind the mark rather than ahead of it: the rule closes up once
+       the mark has passed, which is what stops a section looking as though it
+       has lost its top edge for seconds at a time. */
+    transform: translate(-100%, -50%);
+    background: var(--rule-ground, var(--color-bg-primary));
   }
 
   .rule-eat__mark {
@@ -445,7 +442,7 @@ html:has(#intro):not(:has(#main:target)) {
   }
 
   .rule-eat__jaw {
-    /* The hinge is established by the groups around this one — see the note in
+    /* The hinge is established by the groups around this one, see the note in
        SectionRule.tsx. All this needs is to rotate about its own local origin,
        which the nesting has already placed on the reference line at the mark's
        leading edge, so the mouth opens forward into the part of the rule that
@@ -459,23 +456,12 @@ html:has(#intro):not(:has(#main:target)) {
   }
 }
 
-@keyframes rule-eat-bite {
-  from {
-    -webkit-mask-position: 100% 0;
-    mask-position: 100% 0;
-  }
-  to {
-    -webkit-mask-position: 0% 0;
-    mask-position: 0% 0;
-  }
-}
-
 @keyframes rule-eat-travel {
   from {
-    transform: translateX(0);
+    transform: translateX(var(--rule-inset));
   }
   to {
-    transform: translateX(100%);
+    transform: translateX(calc(100% - var(--rule-inset)));
   }
 }
 
@@ -499,17 +485,12 @@ html:has(#intro):not(:has(#main:target)) {
 
 /* Motion is decoration here. Without it the rule is still a rule. */
 @media (prefers-reduced-motion: reduce) {
-  .rule-eat__line {
-    animation: none;
-    -webkit-mask-image: none;
-    mask-image: none;
-  }
-
   .rule-eat__track,
   .rule-eat__jaw {
     animation: none;
   }
 
+  .rule-eat__bite,
   .rule-eat__mark {
     display: none;
   }
@@ -520,12 +501,16 @@ html:has(#intro):not(:has(#main:target)) {
    for it. A shorter cycle and a slightly larger mark put the motion back where
    it is noticed at a glance, without making it restless. */
 @media (max-width: 640px) {
+  .rule-eat {
+    --rule-inset: 12px;
+    --rule-bite: 120px;
+  }
+
   .rule-eat__mark {
     width: 24px;
     height: 24px;
   }
 
-  .rule-eat__line,
   .rule-eat__track {
     animation-duration: 8s;
   }
