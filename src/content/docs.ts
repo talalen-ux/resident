@@ -202,6 +202,18 @@ export const LP_BANDS = [
     ],
   },
   {
+    mode: "ask-ladder",
+    label: "Ask ladder",
+    summary:
+      "Tokens the protocol already holds, placed entirely above the current price. Every tick up sells a slice higher than the last and earns the pool fee on the fill; a price that falls fills nothing and buys nothing.",
+    range: "entirely above the current price",
+    lifecycle: [
+      "The price rises through it → the inventory sells into the strength, at prices the protocol chose.",
+      "Most of it sells → picked up and re-placed above the new price.",
+      "The price falls away → left where it is. It is a resting sell order on tokens held anyway, and it costs nothing to rest.",
+    ],
+  },
+  {
     mode: "single-sided",
     label: "Bid-side range",
     summary:
@@ -215,7 +227,7 @@ export const LP_BANDS = [
 ] as const;
 
 export const LP_EXPOSURE =
-  "A position earns fees in exchange for absorbing the cost of price movement. Both sides are priced before entry, and a position that fails that test is not opened at any size.";
+  "A position earns fees in exchange for absorbing the cost of price movement. Both sides are priced before entry, and a position that fails that test is not opened at any size. An ask ladder is judged differently and deliberately so: it is placed with tokens the protocol holds either way, so the question is not whether it beats cash but whether it beats holding, and the cost it carries is the part of a rise it sold into rather than any divergence loss.";
 
 export const SIGNALS = [
   {

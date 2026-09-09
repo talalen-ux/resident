@@ -137,6 +137,47 @@ export function bandTicks(
 }
 
 /**
+ * The tick range for an ask ladder: entirely above the price.
+ *
+ * A v3-style range placed wholly above spot holds only token0 and sells it as
+ * the price rises through — which is the ladder. The one thing that must not go
+ * wrong is the range straddling spot: a range that includes the current price
+ * is a two-sided band that takes quote as well, and would silently buy the
+ * token this position exists to sell. The lower bound is therefore rounded UP,
+ * away from the price, and asserted to sit above the current tick.
+ *
+ * Where the stock is token1 rather than token0 the pool is ordered the other
+ * way round and selling the stock means a range BELOW spot; that is the same
+ * position seen from the other side, and the caller gets it by passing a
+ * negative gap.
+ */
+export function ladderTicks(
+  state: PoolState,
+  gap: number,
+  width: number,
+): { tickLower: number; tickUpper: number } {
+  const price = spotPrice(state);
+  const d0 = state.token0.decimals;
+  const d1 = state.token1.decimals;
+  const spacing = state.tickSpacing;
+
+  const lower = alignTick(tickAtPrice(price * (1 + gap), d0, d1), spacing, "up");
+  const upper = alignTick(
+    tickAtPrice(price * (1 + gap) * (1 + width), d0, d1),
+    spacing,
+    "up",
+  );
+
+  // One spacing clear of the current tick, so a price that ticks up between
+  // decision and submission cannot leave the range straddling it.
+  const floor = alignTick(state.tick, spacing, "up") + spacing;
+  const tickLower = Math.max(lower, floor);
+  const tickUpper = Math.max(upper, tickLower + spacing);
+
+  return { tickLower, tickUpper };
+}
+
+/**
  * How much liquidity `capital` of the quote asset buys over a range.
  *
  * Sized off the quote side alone and then capped by what the vault actually

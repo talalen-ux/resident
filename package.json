@@ -9,7 +9,7 @@
     "lint": "eslint",
     "test:contracts": "node --test test/vault.test.mjs test/selectors.test.mjs",
     "compile": "node -e \"import('./test/harness.mjs').then(m=>{const{warnings}=m.compile();console.log('compiled ok, warnings:',warnings.length)})\"",
-    "test:sim": "node --test --experimental-strip-types test/sim.test.mjs test/opportunity.test.mjs test/registry.test.mjs test/band.test.mjs test/backtest.test.mjs test/strategy.test.mjs test/v4.test.mjs test/v4-logs.test.mjs test/allocate.test.mjs test/scanner.test.mjs test/rebalance.test.mjs test/keeper.test.mjs test/telemetry.test.mjs test/parameters.test.mjs test/quotes.test.mjs test/executor.test.mjs test/signer.test.mjs test/rotate.test.mjs",
+    "test:sim": "node --test --experimental-strip-types test/sim.test.mjs test/opportunity.test.mjs test/registry.test.mjs test/band.test.mjs test/backtest.test.mjs test/strategy.test.mjs test/v4.test.mjs test/v4-logs.test.mjs test/allocate.test.mjs test/scanner.test.mjs test/rebalance.test.mjs test/keeper.test.mjs test/telemetry.test.mjs test/parameters.test.mjs test/quotes.test.mjs test/executor.test.mjs test/signer.test.mjs test/rotate.test.mjs test/ladder.test.mjs",
     "test": "npm run test:contracts && npm run test:sim",
     "simulate": "node --experimental-strip-types scripts/simulate.mjs",
     "verify:chain": "node --experimental-strip-types scripts/verify-chain.mjs",
