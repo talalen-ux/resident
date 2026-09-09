@@ -1,8 +1,10 @@
 import type { PoolObservation, VolumeWindows } from "../sim/opportunity.ts";
 import type { PoolKey } from "../sim/v4.ts";
 import { hasHook, poolId, readV4Pool, rpcReader } from "../sim/v4.ts";
+import { spotPrice } from "../sim/v3.ts";
 import type { TokenMeta } from "../sim/v3.ts";
 import { TOKENS, UNISWAP, isTradable, tickerFor } from "../chain.ts";
+import { deriveRates, usdPerQuote } from "./quotes.ts";
 
 import type { PoolsSource } from "./pools-adapter.ts";
 
@@ -143,6 +145,30 @@ export class RpcPoolsSource implements PoolsSource {
   }
 
   async observe(): Promise<PoolObservation[]> {
+    const observations = await this.read();
+
+    // Price every non-stable quote asset off the chain's own markets, then
+    // stamp each pool with what a unit of its quote is worth. Pools whose quote
+    // cannot be priced keep quoteUsd undefined, which fails a gate rather than
+    // being measured against dollar thresholds in the wrong unit.
+    const rates = deriveRates(
+      observations.map((o) => ({
+        base: o.pool.token0.symbol,
+        quote: o.pool.token1.symbol,
+        price: spotPrice(o.pool),
+        volume24h: o.volume.h24,
+      })),
+    );
+
+    for (const o of observations) {
+      const rate = usdPerQuote(o.pool.token1.symbol, rates);
+      if (rate !== null) o.quoteUsd = rate;
+    }
+
+    return observations;
+  }
+
+  private async read(): Promise<PoolObservation[]> {
     const head = Number(BigInt(await this.rpc<string>("eth_blockNumber", [])));
     const spb = await secondsPerBlock(this.rpc, head);
     const blocksFor = (seconds: number) => Math.max(1, Math.round(seconds / spb));

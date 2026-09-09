@@ -83,13 +83,19 @@ function toScannedPools(observations) {
     const volatility = realisedVolatility(prices);
     if (!(volatility > 0)) continue;
 
+    // Both figures are in whatever the pool is quoted in, and the sizing and
+    // allocation rules below are in dollars. A pool whose quote could not be
+    // priced is skipped rather than converted at a made-up rate.
+    const usd = obs.quoteUsd;
+    if (!(usd > 0)) continue;
+
     pools.push({
       name: `${obs.pool.token0.symbol}/${obs.pool.token1.symbol}`,
       chain: "robinhood",
       kind: "band",
-      volume: obs.volume.h1 / 60,
+      volume: (obs.volume.h1 / 60) * usd,
       volatility,
-      liquidity: liquidityInBand(obs.pool, 0.05),
+      liquidity: liquidityInBand(obs.pool, 0.05) * usd,
       feePips: obs.pool.fee,
       prices,
     });

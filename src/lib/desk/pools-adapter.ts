@@ -22,6 +22,9 @@ export interface PoolsSource {
 
 const stock = (symbol: string) => ({ symbol, decimals: 18 });
 const USDG = { symbol: "USDG", decimals: 6 };
+const WETH = { symbol: "WETH", decimals: 18 };
+/** Illustrative, like everything else here. The live source reads it off a pool. */
+const WETH_USD = 3_100;
 
 export class FixturePoolsSource implements PoolsSource {
   readonly isFixture = true;
@@ -45,8 +48,46 @@ export class FixturePoolsSource implements PoolsSource {
       smartLpNet: 3,
       smartLpPresent: 4,
       smartLpExited1h: 0,
+      quoteUsd: 1,
       ...over,
     });
+
+    /**
+     * A pool quoted in ether rather than in a dollar stablecoin.
+     *
+     * Its volume and depth are in WETH, so every figure it reports is three
+     * orders of magnitude away from the thresholds it is judged against until
+     * the rate is applied. It is here so the board always shows one.
+     */
+    const inEther = (
+      address: string,
+      symbol: string,
+      priceUsd: number,
+      liquidity: bigint,
+      fee: number,
+      volumeUsd: PoolObservation["volume"],
+      over: Partial<PoolObservation> = {},
+    ): PoolObservation => {
+      const price = priceUsd / WETH_USD;
+      return {
+        address,
+        pool: buildPool({ price, liquidity, fee, token0: stock(symbol), token1: WETH }),
+        volume: {
+          m5: volumeUsd.m5 / WETH_USD,
+          h1: volumeUsd.h1 / WETH_USD,
+          h6: volumeUsd.h6 / WETH_USD,
+          h24: volumeUsd.h24 / WETH_USD,
+        },
+        peak24h: price * 1.06,
+        ageMinutes: 900,
+        hasHook: false,
+        smartLpNet: 3,
+        smartLpPresent: 4,
+        smartLpExited1h: 0,
+        quoteUsd: WETH_USD,
+        ...over,
+      };
+    };
 
     return [
       mk("0x1a2b3c4d5e6f70819a2b3c4d5e6f7081", "BBBY", 0.42, 18_000n * 10n ** 12n, 3000,
@@ -73,6 +114,13 @@ export class FixturePoolsSource implements PoolsSource {
       mk("0x819a2b3c4d5e6f70819a2b3c4d5e6f70", "SNDL", 0.19, 9_000n * 10n ** 12n, 3000,
         { m5: 3_200, h1: 58_000, h6: 190_000, h24: 780_000 },
         { hasHook: true, smartLpNet: 2, smartLpPresent: 2 }),
+      inEther("0x9a2b3c4d5e6f70819a2b3c4d5e6f7081", "MARA", 14.60, 260n * 10n ** 12n, 3000,
+        { m5: 6_400, h1: 104_000, h6: 480_000, h24: 1_700_000 },
+        { smartLpNet: 3, smartLpPresent: 4 }),
+      // The same pool with nothing pricing its quote: held rather than measured.
+      inEther("0xab2b3c4d5e6f70819a2b3c4d5e6f7081", "RIOT", 9.80, 190n * 10n ** 12n, 3000,
+        { m5: 4_100, h1: 88_000, h6: 390_000, h24: 1_300_000 },
+        { quoteUsd: undefined, smartLpNet: 2, smartLpPresent: 3 }),
     ];
   }
 }

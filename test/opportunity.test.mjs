@@ -43,6 +43,8 @@ const obs = (over = {}) => ({
   peak24h: 5.2,
   ageMinutes: 240,
   hasHook: false,
+  // A USDG pool: a unit of the quote is a dollar by construction.
+  quoteUsd: 1,
   smartLpNet: 3,
   smartLpPresent: 4,
   smartLpExited1h: 0,

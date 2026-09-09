@@ -105,7 +105,7 @@ export const FAQS = [
   },
   {
     q: "How are pools chosen?",
-    a: "Six conditions, all of which must hold. The fee the pool charges reaches the position, read live from the pool rather than assumed from the tier it was created with. At least $25,000 of volume in the trailing hour. No more than $400,000 of liquidity within 5% of the price. Trading at 60% or more of its 24-hour high. At least 20 minutes old. And the providers already in that pool are net winners rather than net losers.",
+    a: "Seven conditions, all of which must hold. The pool can be priced in dollars, which for a WETH-quoted pool means converting at what ether is trading at in its own market. The fee the pool charges reaches the position, read live from the pool rather than assumed from the tier it was created with. At least $25,000 of volume in the trailing hour. No more than $400,000 of liquidity within 5% of the price. Trading at 60% or more of its 24-hour high. At least 20 minutes old. And the providers already in that pool are net winners rather than net losers.",
   },
   {
     q: "How wide is a position?",

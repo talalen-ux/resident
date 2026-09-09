@@ -48,6 +48,16 @@ export type PoolObservation = {
   swaps1h?: number;
   /** Signed quote flow over the last hour: buys less sells, in quote units. */
   flow1h?: number;
+  /**
+   * Dollars per whole unit of the pool's quote asset.
+   *
+   * Everything a pool reports about itself is denominated in whatever it is
+   * quoted in, and every threshold here is a dollar figure. One is a USDG pool
+   * and needs no conversion; anything else does. Undefined means the rate was
+   * not measured, which is a reason to hold the pool rather than to measure it
+   * in the wrong unit, so it fails a gate rather than defaulting to one.
+   */
+  quoteUsd?: number;
 };
 
 export type AlertConfig = {
@@ -165,6 +175,11 @@ export type Alert = {
   address: string;
   pair: string;
   feeTier: number;
+  /** Symbol of the asset the pool is quoted in. */
+  quote: string;
+  /** Dollars per unit of that asset, or undefined when it was not measured. */
+  quoteUsd: number | undefined;
+  /** USD per whole stock token. */
   price: number;
   inBandLiquidity: number;
   share: number;
@@ -184,17 +199,44 @@ export function evaluatePool(
   obs: PoolObservation,
   config: AlertConfig = DEFAULT_ALERT_CONFIG,
 ): Alert {
-  const price = spotPrice(obs.pool);
-  const inBand = liquidityInBand(obs.pool, config.bandHalfWidth);
+  // One conversion, here, and every figure below this line is dollars. See
+  // src/lib/desk/quotes.ts for why this cannot be skipped once a second quote
+  // asset exists.
+  const usd = obs.quoteUsd;
+  const rate = usd ?? 1;
+  const price = spotPrice(obs.pool) * rate;
+  const inBand = liquidityInBand(obs.pool, config.bandHalfWidth) * rate;
+  const volume: VolumeWindows = {
+    m5: obs.volume.m5 * rate,
+    h1: obs.volume.h1 * rate,
+    h6: obs.volume.h6 * rate,
+    h24: obs.volume.h24 * rate,
+  };
   const share = bandShare(config.bandSize, inBand);
-  const fees = estimateFees(obs.volume, obs.pool.fee, share, config.captureEfficiency);
+  const fees = estimateFees(volume, obs.pool.fee, share, config.captureEfficiency);
 
   // Trailing hour, annualised against the band. A ranking figure, not a promise.
   const impliedApr = (fees.h1 * 24 * 365) / config.bandSize;
 
-  const peakFraction = obs.peak24h > 0 ? price / obs.peak24h : 0;
+  // Both sides of this ratio are in the same units either way, so it is the one
+  // figure the conversion cannot change.
+  const peakFraction = obs.peak24h > 0 ? spotPrice(obs.pool) / obs.peak24h : 0;
+
+  const quoteSymbol = obs.pool.stockIsToken1
+    ? obs.pool.token0.symbol
+    : obs.pool.token1.symbol;
 
   const gates: Gate[] = [
+    {
+      name: "priced in dollars",
+      passed: usd !== undefined && usd > 0,
+      detail:
+        usd === undefined
+          ? `no USD rate for ${quoteSymbol}; every threshold below would be in the wrong unit`
+          : quoteSymbol === "USDG"
+            ? "quoted in USDG"
+            : `quoted in ${quoteSymbol} at $${usd.toLocaleString("en-US", { maximumFractionDigits: 2 })}`,
+    },
     {
       // The fee here is the one slot0 says is actually being charged, not the
       // static tier on the key — so a hook that skims the LP fails this on the
@@ -210,8 +252,8 @@ export function evaluatePool(
     },
     {
       name: "volume",
-      passed: obs.volume.h1 >= config.minVolume1h,
-      detail: `$${Math.round(obs.volume.h1).toLocaleString("en-US")} in the last hour`,
+      passed: volume.h1 >= config.minVolume1h,
+      detail: `$${Math.round(volume.h1).toLocaleString("en-US")} in the last hour`,
     },
     {
       name: "depth under the cap",
@@ -245,6 +287,8 @@ export function evaluatePool(
     address: obs.address,
     pair: `${obs.pool.token0.symbol}/${obs.pool.token1.symbol}`,
     feeTier: obs.pool.fee,
+    quote: quoteSymbol,
+    quoteUsd: usd,
     price,
     inBandLiquidity: inBand,
     share,

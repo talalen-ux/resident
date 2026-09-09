@@ -18,7 +18,7 @@
 
 export const TOKEN = "$RES";
 export const CHAIN = "Robinhood Chain";
-export const QUOTE = "USDG";
+export const QUOTE = "USDG and WETH";
 
 export const NAV_LINKS = [
   { label: "Overview", href: "#overview" },
@@ -105,8 +105,8 @@ export const METHOD = [
     id: "selection",
     title: "Pool selection",
     body: [
-      "Six conditions, evaluated continuously. All six must hold; a pool that fails any one is not a candidate at any size.",
-      "The fee the pool charges reaches the position. The protocol reads the fee being charged now rather than the tier the pool was created with, so a pool that has quietly stopped paying its providers fails here. At least $25,000 has traded in it in the last hour, because a quiet pool pays nothing. No more than $400,000 of liquidity sits near the current price, because the more crowded a pool is, the smaller the share. The price is still within 40% of its 24-hour high, so the protocol is not providing liquidity into a fall. The pool is at least 20 minutes old, which excludes the first minutes of a launch. And the providers already in it are making money rather than losing it.",
+      "Seven conditions, evaluated continuously. All seven must hold; a pool that fails any one is not a candidate at any size.",
+      "The pool can be priced in dollars. Pools are quoted in USDG or in WETH, and every threshold below is a dollar figure, so a WETH pool is converted at the rate its own market against USDG is trading at. A quote the protocol cannot price is held rather than measured in the wrong unit, because eight ether an hour of volume looks like nothing against a $25,000 threshold and a hundred ether of depth looks like nothing against a $400,000 cap. The fee the pool charges reaches the position. The protocol reads the fee being charged now rather than the tier the pool was created with, so a pool that has quietly stopped paying its providers fails here. At least $25,000 has traded in it in the last hour, because a quiet pool pays nothing. No more than $400,000 of liquidity sits near the current price, because the more crowded a pool is, the smaller the share. The price is still within 40% of its 24-hour high, so the protocol is not providing liquidity into a fall. The pool is at least 20 minutes old, which excludes the first minutes of a launch. And the providers already in it are making money rather than losing it.",
       "These are Uniswap v4 pools. Many of the best of them charge a dynamic fee that rises when the market is busy, and a dynamic fee is implemented with a hook. A rule that avoided hooks would therefore avoid the pools worth being in. What matters is not whether a pool has custom code attached, but whether the fee it charges still arrives, which is read from the pool directly.",
       "A pool that stops qualifying remains on the board for 24 hours rather than disappearing, so activity that has already passed stays visible.",
     ],
