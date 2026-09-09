@@ -11,8 +11,15 @@
 
 import type { LiquidityShape } from "../sim/dlmm.ts";
 
-/** Which model prices this position, and therefore which venue opened it. */
-export type VenueKind = "band" | "dlmm";
+/**
+ * Which model prices this position, and therefore how it is placed.
+ *
+ * A ladder is its own kind rather than a band with unusual bounds, because it
+ * is priced against a different baseline: a band is judged against holding
+ * cash, a ladder against holding the tokens. Collapsing them would put the two
+ * through one entry test, and the test is the thing that differs.
+ */
+export type VenueKind = "band" | "dlmm" | "ladder";
 
 export type KeeperPosition = {
   /** Stable across restarts. Assigned when the open intent is journalled. */
@@ -65,6 +72,11 @@ export type Intent =
       upper: number;
       /** Half-width as a fraction of price, from the model. */
       halfWidth: number;
+      /** Ladder only: where it starts above the price, and how far it runs. */
+      gap?: number;
+      width?: number;
+      /** Ladder only: base tokens to place, in whole units. */
+      quantity?: number;
       shape?: LiquidityShape;
       binCount?: number;
       reason: string;

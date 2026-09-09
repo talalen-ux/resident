@@ -17,8 +17,9 @@
  *   4. Rotate capital off a pool that has stopped working and onto one that
  *      is. Nothing else asks this, and without it the desk leaks in a way that
  *      never registers as a loss.
- *   5. Deploy idle capital into the best eligible pool.
- *   6. Move capital across chains, last, because it is the only decision that
+ *   5. Rest loose inventory above the price, where that beats holding it.
+ *   6. Deploy idle capital into the best eligible pool.
+ *   7. Move capital across chains, last, because it is the only decision that
  *      cannot be reversed inside one interval.
  *
  * Nothing here signs or submits. It returns intents, which the loop journals
@@ -42,6 +43,7 @@ import {
   type RetireConfig,
   type SweepConfig,
 } from "./sweep.ts";
+import { bestLadder } from "../sim/ladder.ts";
 import { intentId } from "./registry.ts";
 import type { Intent, KeeperState } from "./types.ts";
 
@@ -136,6 +138,21 @@ export type DecideInput = {
   unbookedLoss: number;
   /** Holder entitlement not yet paid, in quote units. */
   owed: number;
+  /**
+   * Tokens the desk is holding loose, per pool.
+   *
+   * Protocol fees arrive as the token whether or not anything is placed, so
+   * inventory sitting in the vault is not neutral: it is a decision to hold.
+   * A ladder is the alternative, and it is only worth placing where it beats
+   * holding, which is what evaluateLadder measures.
+   */
+  inventory: {
+    pool: string;
+    /** Whole base tokens available to place. */
+    quantity: number;
+    /** Quote per base. */
+    price: number;
+  }[];
   /** Distribute once owed reaches this. */
   distributeAt: number;
   now?: number;
@@ -342,7 +359,66 @@ export function decide(
     passed.push({ subject: `${worst.from.name} rotate`, reason: worst.reason });
   }
 
-  // 5. Deploy idle capital.
+  // 5. Ladder loose inventory.
+  //
+  // Judged against HOLDING, not against cash: the tokens are in the vault
+  // either way. So the question is never "is this a good pool to buy into" but
+  // "does resting these above the price beat leaving them alone", which is a
+  // different test and gives a different answer — most obviously on a runner,
+  // where a ladder sells the whole position into the first leg and the model
+  // says so rather than reporting a large fee number.
+  const laddered = new Set(
+    input.state.positions.filter((p) => p.kind === "ladder").map((p) => p.pool),
+  );
+  for (const holding of input.inventory) {
+    if (laddered.has(holding.pool)) continue;
+    const on = byPool.get(holding.pool);
+    if (!on || !on.eligible) {
+      passed.push({
+        subject: `${holding.pool} ladder`,
+        reason: on ? (on.blockedBy ?? "not eligible") : "pool is not on the board",
+      });
+      continue;
+    }
+    if (!(holding.quantity > 0) || !(holding.price > 0)) continue;
+
+    const placement = bestLadder({
+      volume: on.pool.volume,
+      feePips: on.pool.kind === "band" ? on.pool.feePips : on.pool.feeBps * 100,
+      liquidity: on.pool.kind === "band" ? on.pool.liquidity : on.pool.liquidityPerBin,
+      quantity: holding.quantity,
+      price: holding.price,
+      volatility: on.pool.volatility,
+      horizon: config.scan.rebalance.horizon,
+      captureEfficiency: on.capture.efficiency,
+    });
+
+    if (placement.verdict.edgeOverHold <= 0) {
+      passed.push({
+        subject: `${holding.pool} ladder`,
+        reason: `worse than holding: ${placement.verdict.reason}`,
+      });
+      continue;
+    }
+
+    intents.push({
+      id: intentId("open", now),
+      kind: "open",
+      chain: on.pool.chain,
+      pool: holding.pool,
+      venueKind: "ladder",
+      capital: holding.quantity * holding.price,
+      lower: 0,
+      upper: 0,
+      halfWidth: placement.width / 2,
+      gap: placement.gap,
+      width: placement.width,
+      quantity: holding.quantity,
+      reason: `laddering inventory: ${placement.verdict.reason}`,
+    });
+  }
+
+  // 6. Deploy idle capital.
   const deployable = input.idleCapital - config.reserve;
   const held = new Set(input.state.positions.map((p) => p.pool));
   const target = bestOpenable(input.scan.ranked, held);
@@ -380,7 +456,7 @@ export function decide(
     });
   }
 
-  // 6. Cross chains.
+  // 7. Cross chains.
   if (input.scan.move?.move) {
     intents.push({
       id: intentId("bridge", now),

@@ -347,7 +347,10 @@ export function makeV4Executor(ctx: V4Context) {
       // Read fresh. The band is centred on the price at submission, not on the
       // price the tick was decided from.
       const state = await ctx.readPool(found.key);
-      const { tickLower, tickUpper } = bandTicks(state, intent.halfWidth);
+      const isLadder = intent.venueKind === "ladder";
+      const { tickLower, tickUpper } = isLadder
+        ? ladderTicks(state, intent.gap ?? 0.01, intent.width ?? 0.1)
+        : bandTicks(state, intent.halfWidth);
 
       const quoteIsToken1 = !state.stockIsToken1;
       const quoteToken = quoteIsToken1 ? found.key.currency1 : found.key.currency0;
@@ -363,11 +366,14 @@ export function makeV4Executor(ctx: V4Context) {
         ctx.balanceOf(found.key.currency1),
       ]);
 
+      // A ladder is funded with the token alone, so it commits no quote at all.
+      // Passing the quote amount here would let sizeMint bound it on a side the
+      // position does not use, and a range above spot needs none of it.
       const sized = sizeMint({
         state,
         tickLower,
         tickUpper,
-        quoteAmount,
+        quoteAmount: isLadder ? 0n : quoteAmount,
         balance0,
         balance1,
       });

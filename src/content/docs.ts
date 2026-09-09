@@ -183,7 +183,7 @@ export const METHOD = [
     body: [
       "Resident is pre-deployment. The vault contract is complete and covered by a test suite; it has not been externally audited and is not deployed. No vault holds assets, and the positions page displays example data, labelled as such.",
       "The process described above runs, and it signs nothing. It reads chains, ranks pools, and records every position it would have opened. That record is worth having on its own, because it can be checked against what those pools actually paid before any capital is at risk. Two things stand between it and taking a position: a signing service, which does not belong in this code, and the venue-specific component that knows how to open a position on each venue.",
-      "Fee projections are modelled at full capture: they assume all pool volume transacts through the position's range. Measured against route-level simulation, realised capture was materially lower. Every projection on this site is an upper bound.",
+      "Fee projections start at full capture: the formula credits a position with every unit of a pool's reported flow at its full share, and a pool's flow includes trades at prices the position does not cover. That figure is an upper bound and has never been what measurement returned. The protocol measures the gap instead of assuming it — every sweep is one sample of what the model predicted against what arrived — and prices each pool at what it has actually been paying, its own history first, the desk's average second. Until a pool has been traded there is no measurement, and it is priced at a discount to the ceiling rather than at the ceiling.",
     ],
   },
 ] as const;
@@ -346,6 +346,10 @@ export const PARAMETERS = [
   { meaning: "Re-centring must be worth", value: "2x its cost" },
   { meaning: "A pool counts as ranging if it held", value: "±35%" },
   { meaning: "for at least this much of its history", value: "80%" },
+  { meaning: "Sweeps before a pool's capture counts as measured", value: "12" },
+  { meaning: "Capture assumed before anything is measured", value: "50%" },
+  { meaning: "A sweep counts half as much after", value: "24 hours" },
+  { meaning: "Rotating to a better pool must be worth", value: "3x its cost" },
 ] as const;
 
 export const CADENCES = [

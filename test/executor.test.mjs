@@ -56,6 +56,8 @@ const KEY = {
   hooks: "0x" + "0".repeat(40),
 };
 
+const POOL_TICK = -260229;
+
 const POOL = () =>
   buildPool({
     price: 5,
@@ -490,4 +492,23 @@ test("a node with no priority fee method still assembles", async () => {
   const old = node({ eth_maxPriorityFeePerGas: new Error("method not found") });
   const tx = await assemble(old, ADDR(8), { to: VAULT, data: "0x", description: "x" });
   assert.ok(tx.maxPriorityFeePerGas > 0n);
+});
+
+/** A ladder goes above the price and is funded with the token alone. */
+test("a ladder intent places above the price and commits no quote", async () => {
+  const { ctx, sent } = fakeChain({ balanceOf: async () => 1_000n * 10n ** 18n });
+  await makeV4Executor(ctx)({
+    ...openIntent, id: "l1", venueKind: "ladder", gap: 0.02, width: 0.1, quantity: 1_000,
+  });
+  const mint = unpack(
+    abi.decode(["address", "uint256", "bytes"], "0x" + sent.at(-1).data.slice(10))[2],
+  );
+  const decoded = abi.decode(
+    ["(address,address,uint24,int24,address)", "int24", "int24", "uint256", "uint128", "uint128", "address", "bytes"],
+    mint.params[0],
+  );
+  const [tickLower, tickUpper] = [Number(decoded[1]), Number(decoded[2])];
+  assert.ok(tickLower > POOL_TICK, `${tickLower} must sit above the current tick`);
+  assert.ok(tickUpper > tickLower);
+  assert.equal(decoded[5], 0n, "no quote is committed");
 });

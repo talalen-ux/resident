@@ -27,6 +27,14 @@ import {
   type SizingConfig,
 } from "./dlmm.ts";
 import {
+  DEFAULT_CAPTURE,
+  captureFor,
+  deskWide,
+  type CaptureConfig,
+  type CaptureEstimate,
+  type CaptureLookup,
+} from "./capture.ts";
+import {
   DEFAULT_REBALANCE,
   rangingScore,
   shouldRebalance,
@@ -109,6 +117,14 @@ export type ScanResult = {
   side?: PositionSide;
   /** How the pool scored on holding a band, or null when it has no history. */
   ranging: { containment: number; drift: number; ranging: boolean } | null;
+  /**
+   * The capture this was priced at, and where that number came from.
+   *
+   * Carried onto the result rather than folded away, because a board showing a
+   * measured 0.62 and an assumed 0.5 identically hides the thing an operator
+   * most wants to know about a ranking.
+   */
+  capture: CaptureLookup;
   /** False when the board should not open here, whatever the rate says. */
   eligible: boolean;
   /** Why it is not eligible, when it is not. */
@@ -120,8 +136,17 @@ export type ScanConfig = {
   entry: EntryConfig;
   sizing: SizingConfig;
   allocation: AllocationConfig;
-  /** Assumed fraction of the naive fee estimate actually captured. */
+  /**
+   * Fraction of the naive fee estimate actually captured, when nothing has been
+   * measured for a pool.
+   *
+   * A ceiling, and used as one only where there is no measurement to use
+   * instead. See capture.ts: a desk that prices entries at the ceiling opens
+   * positions whose true income is under the bleed they are charged.
+   */
   captureEfficiency: number;
+  /** How measured capture is turned into the number a pool is priced at. */
+  capture: CaptureConfig;
   /**
    * Refuse to open into a pool that has not been shown to range.
    *
@@ -142,6 +167,7 @@ export const DEFAULT_SCAN: ScanConfig = {
   allocation: DEFAULT_ALLOCATION,
   // An upper bound, not a fitted value. See BandConfig.captureEfficiency.
   captureEfficiency: 1,
+  capture: DEFAULT_CAPTURE,
   requireRanging: true,
   rangingHalfWidth: 0.35,
   rebalance: DEFAULT_REBALANCE,
@@ -158,6 +184,8 @@ export const DEFAULT_SCAN: ScanConfig = {
 export function pricePool(
   pool: ScannedPool,
   config: ScanConfig = DEFAULT_SCAN,
+  calibration: Map<string, CaptureEstimate> = new Map(),
+  desk: CaptureEstimate | null = deskWide(calibration, config.capture),
 ): ScanResult {
   if (!(pool.volatility > 0)) {
     throw new Error(
@@ -173,6 +201,15 @@ export function pricePool(
   const ranging = pool.prices
     ? rangingScore(pool.prices, config.rangingHalfWidth)
     : null;
+
+  // Measured where it has been measured, this pool's own history first and the
+  // desk's second. config.captureEfficiency is the last resort, not the first.
+  const capture = captureFor(
+    pool.name,
+    calibration,
+    { ...config.capture, unmeasured: config.captureEfficiency * config.capture.unmeasured },
+    desk,
+  );
 
   let blockedBy: string | null = null;
   if (config.requireRanging) {
@@ -194,7 +231,7 @@ export function pricePool(
         feePips: pool.feePips,
         volatility: pool.volatility,
         deployed: capital,
-        captureEfficiency: config.captureEfficiency,
+        captureEfficiency: capture.efficiency,
       },
       config.entry,
     );
@@ -206,6 +243,7 @@ export function pricePool(
       netApr: verdict.netApr,
       halfWidth: verdict.halfWidth,
       ranging,
+      capture,
       eligible,
       blockedBy,
       reason: verdict.reason,
@@ -220,7 +258,7 @@ export function pricePool(
       deployed: capital,
       liquidityPerBin: pool.liquidityPerBin,
       volatility: pool.volatility,
-      captureEfficiency: config.captureEfficiency,
+      captureEfficiency: capture.efficiency,
     },
     undefined,
     undefined,
@@ -234,6 +272,7 @@ export function pricePool(
     netRate: verdict.netRate,
     netApr: verdict.netApr,
     halfWidth: verdict.halfWidth,
+    capture,
     binCount,
     shape,
     side,
@@ -265,13 +304,18 @@ export function scan(
   capital: number,
   bridges: Record<string, BridgeCost>,
   config: ScanConfig = DEFAULT_SCAN,
+  calibration: Map<string, CaptureEstimate> = new Map(),
 ): Scan {
   const ranked: ScanResult[] = [];
   const skipped: { name: string; reason: string }[] = [];
 
+  // Computed once for the whole board rather than per pool: it is a sum over
+  // every pool's history and does not change between them.
+  const desk = deskWide(calibration, config.capture);
+
   for (const pool of pools) {
     try {
-      ranked.push(pricePool(pool, config));
+      ranked.push(pricePool(pool, config, calibration, desk));
     } catch (error) {
       skipped.push({
         name: pool.name,

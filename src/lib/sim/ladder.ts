@@ -39,7 +39,7 @@
  * variance and pretending otherwise would be the weaker half of this model.
  */
 
-import { concentratedShare } from "./strategy.ts";
+import { liquidityForBase, liquidityForCapital } from "./band.ts";
 
 export type LadderInputs = {
   /** Quote volume per interval. */
@@ -178,9 +178,20 @@ export function evaluateLadder(inputs: LadderInputs): LadderVerdict {
 
   // Fees. The ladder competes for flow only where it sits, and only while the
   // price is there.
+  //
+  // The share cannot come from concentratedShare: that helper models a band
+  // CENTRED on the price, and a ladder is not centred on anything — it sits
+  // wholly above. Running it through the two-sided formula silently prices a
+  // different position, and by a margin that moves with the gap, so it would be
+  // wrong differently for every placement.
   const value = inputs.quantity * inputs.price;
-  const halfWidth = Math.max(1e-9, (Math.exp(b) - Math.exp(a)) / 2);
-  const share = concentratedShare(value, halfWidth, inputs.liquidity);
+  const share = ladderShare(
+    inputs.quantity,
+    inputs.price * Math.exp(a),
+    inputs.price * Math.exp(b),
+    inputs.price,
+    inputs.liquidity,
+  );
   const feeIncome =
     inputs.volume *
     (inputs.feePips / 1_000_000) *
@@ -208,6 +219,34 @@ export function evaluateLadder(inputs: LadderInputs): LadderVerdict {
         : `gives up ${(foregoneRate * 1e4).toFixed(2)}bps of upside for ` +
           `${((feeRate + premiumRate) * 1e4).toFixed(2)}bps of income`,
   };
+}
+
+/**
+ * The ladder's share of the flow crossing it.
+ *
+ * Our L comes from the base-token side, because that is all the ladder holds.
+ * The pool's comes from its quote-denominated depth within `referenceWidth` of
+ * spot, which is how depth is reported; using it as a proxy for depth up inside
+ * the ladder is the same approximation the band model makes, and is the weaker
+ * half of both.
+ */
+export function ladderShare(
+  quantity: number,
+  lower: number,
+  upper: number,
+  price: number,
+  poolLiquidity: number,
+  referenceWidth = 0.05,
+): number {
+  const ours = liquidityForBase(quantity, lower, upper);
+  const theirs = liquidityForCapital(
+    poolLiquidity,
+    price * (1 - referenceWidth),
+    price * (1 + referenceWidth),
+    price,
+  );
+  if (ours + theirs <= 0) return 0;
+  return ours / (ours + theirs);
 }
 
 function empty(reason: string): LadderVerdict {

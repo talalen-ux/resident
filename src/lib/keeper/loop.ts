@@ -36,6 +36,13 @@ export type Observation = {
   current: Venue | null;
   /** Uncommitted quote in the vault. */
   idleCapital: number;
+  /**
+   * Loose tokens in the vault, per pool.
+   *
+   * Protocol fees arrive as the token, so this is never empty on a running
+   * desk. Leaving it empty is a decision to hold everything.
+   */
+  inventory: { pool: string; quantity: number; price: number }[];
   unbookedProfit: number;
   unbookedLoss: number;
   owed: number;
@@ -176,6 +183,7 @@ export async function tick(
       scan: scanned,
       observations: observation.positions,
       idleCapital: observation.idleCapital,
+      inventory: observation.inventory,
       unbookedProfit: observation.unbookedProfit,
       unbookedLoss: observation.unbookedLoss,
       owed: observation.owed,

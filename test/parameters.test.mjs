@@ -27,6 +27,8 @@ import {
   RANGING_THRESHOLDS,
 } from "../src/lib/sim/rebalance.ts";
 import { DEFAULT_SWEEP, DEFAULT_RETIRE } from "../src/lib/keeper/sweep.ts";
+import { DEFAULT_CAPTURE } from "../src/lib/sim/capture.ts";
+import { DEFAULT_ROTATION } from "../src/lib/sim/rotate.ts";
 import { DEFAULT_DECIDE } from "../src/lib/keeper/decide.ts";
 import { DEFAULT_TICK } from "../src/lib/keeper/loop.ts";
 
@@ -69,6 +71,14 @@ const BINDINGS = {
     `±${RANGING_THRESHOLDS.bandHalfWidth * 100}%`,
   "for at least this much of its history": () =>
     `${RANGING_THRESHOLDS.containment * 100}%`,
+  "Sweeps before a pool's capture counts as measured": () =>
+    `${DEFAULT_CAPTURE.minSamples}`,
+  "Capture assumed before anything is measured": () =>
+    `${DEFAULT_CAPTURE.unmeasured * 100}%`,
+  "A sweep counts half as much after": () =>
+    `${DEFAULT_CAPTURE.halfLifeMs / 3_600_000} hours`,
+  "Rotating to a better pool must be worth": () =>
+    `${DEFAULT_ROTATION.requiredMargin}x its cost`,
 };
 
 for (const [meaning, expected] of Object.entries(BINDINGS)) {

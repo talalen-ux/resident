@@ -59,6 +59,28 @@ export function liquidityForCapital(
   return capital / denominator;
 }
 
+/**
+ * Liquidity for a range funded with the base token alone.
+ *
+ * The counterpart to {@link liquidityForCapital}, which assumes the price sits
+ * inside the range and takes quote capital. A range entirely above the price
+ * holds no quote at all, and putting it through the two-sided formula returns
+ * zero: the denominator goes negative the moment `pa` rises above `p0`.
+ *
+ * Same L as everywhere else, derived from the other side of the curve —
+ * amount0 = L(1/√pa − 1/√pb) — so it compares directly against a pool's
+ * liquidity for a share calculation.
+ */
+export function liquidityForBase(
+  quantity: number,
+  pa: number,
+  pb: number,
+): number {
+  if (!(quantity > 0) || !(pa > 0) || !(pb > pa)) return 0;
+  const denominator = 1 / Math.sqrt(pa) - 1 / Math.sqrt(pb);
+  return denominator > 0 ? quantity / denominator : 0;
+}
+
 export type Band = {
   /** Lower bound, quote per token0. */
   lower: number;

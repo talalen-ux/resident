@@ -200,6 +200,9 @@ const deps = {
       positions: [],
       current: null,
       idleCapital: Number(process.env.RESIDENT_DRY_CAPITAL ?? 0),
+      // A running desk reads the vault's token balances here. Empty means the
+      // desk holds nothing loose, not that laddering was considered and refused.
+      inventory: [],
       unbookedProfit: 0,
       unbookedLoss: 0,
       owed: 0,

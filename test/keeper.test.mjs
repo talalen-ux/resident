@@ -205,7 +205,7 @@ const observed = (over = {}) => ({
 const input = (over = {}) => ({
   state: { positions: [], inFlight: [], sweptTotal: 0, lastRecordAt: 0, lastHealthyAt: 0 },
   scan: scan([POOL], null, 20_000, {}),
-  observations: [],
+  observations: [], inventory: [],
   idleCapital: 0, unbookedProfit: 0, unbookedLoss: 0, owed: 0, distributeAt: 500,
   now: 1_000,
   ...over,
@@ -291,6 +291,7 @@ function fakeDeps(over = {}) {
     signer: new DryRunSigner(),
     observe: async () => ({
       pools: [POOL], positions: [], current: null, idleCapital: 50_000,
+      inventory: [],
       unbookedProfit: 0, unbookedLoss: 0, owed: 0, bridges: {},
       vault: { owner: "0xowner", keeper: "0xkeeper" },
     }),
@@ -327,6 +328,7 @@ test("an unresolved call stops the rest of the tick", async () => {
     fakeDeps({
       observe: async () => ({
         pools: [POOL], positions: [], current: null, idleCapital: 50_000,
+        inventory: [],
         unbookedProfit: 25, unbookedLoss: 0, owed: 900, bridges: {},
         vault: { owner: "0xowner", keeper: "0xkeeper" },
       }),
@@ -541,4 +543,69 @@ test("a position being retired is not also rotated", () => {
   );
   assert.equal(intents.filter((i) => i.kind === "close").length, 1, "closed once, not twice");
   assert.equal(intents.filter((i) => i.kind === "open" && i.pool === "MOO/USDG").length, 0);
+});
+
+/* ------------------------------------------------------------ the ladder */
+
+/**
+ * Inventory is not neutral. Protocol fees arrive as the token whether or not
+ * anything is placed, so leaving it loose is a decision to hold, and the
+ * ladder is the alternative it has to beat.
+ */
+test("loose inventory is rested above the price when that beats holding it", () => {
+  const { intents } = decide(
+    input({
+      scan: scan([{ ...POOL, volume: 200_000, volatility: 0.004 }], null, 20_000, {}),
+      inventory: [{ pool: "AMC/USDG", quantity: 5_000, price: 5 }],
+    }),
+  );
+  const ladder = intents.find((i) => i.kind === "open" && i.venueKind === "ladder");
+  assert.ok(ladder, "a ladder is placed");
+  assert.ok(ladder.gap > 0, "above the price, never on it");
+  assert.ok(ladder.width > 0);
+  assert.equal(ladder.quantity, 5_000);
+  assert.match(ladder.reason, /laddering inventory/);
+});
+
+/**
+ * The result that matters on a runner: the ladder sells the whole position into
+ * the first leg, and holding beats it. A fee-ranked view would show a large
+ * number and no cost.
+ */
+test("on a runner the inventory is left alone, with the reason", () => {
+  const { intents, passed } = decide(
+    input({
+      scan: scan([{ ...POOL, volume: 200_000, volatility: 0.06 }], null, 20_000, {}),
+      inventory: [{ pool: "AMC/USDG", quantity: 5_000, price: 5 }],
+    }),
+  );
+  assert.equal(intents.some((i) => i.venueKind === "ladder"), false);
+  assert.ok(passed.some((p) => /ladder/.test(p.subject) && /worse than holding/.test(p.reason)));
+});
+
+test("a pool that is not eligible is not laddered into either", () => {
+  const TRENDING = [100, 92, 84, 77, 70, 64, 58, 52, 47, 42, 38, 34];
+  const { intents, passed } = decide(
+    input({
+      scan: scan([{ ...POOL, prices: TRENDING }], null, 20_000, {}),
+      inventory: [{ pool: "AMC/USDG", quantity: 5_000, price: 5 }],
+    }),
+  );
+  assert.equal(intents.some((i) => i.venueKind === "ladder"), false);
+  assert.ok(passed.some((p) => /ladder/.test(p.subject) && /trending/.test(p.reason)));
+});
+
+test("inventory already laddered is not laddered twice", () => {
+  const { intents } = decide(
+    input({
+      scan: scan([{ ...POOL, volume: 200_000, volatility: 0.004 }], null, 20_000, {}),
+      state: {
+        positions: [held({ kind: "ladder" })],
+        inFlight: [], sweptTotal: 0, lastRecordAt: 0, lastHealthyAt: 0,
+      },
+      observations: [observed()],
+      inventory: [{ pool: "AMC/USDG", quantity: 5_000, price: 5 }],
+    }),
+  );
+  assert.equal(intents.some((i) => i.venueKind === "ladder"), false);
 });
