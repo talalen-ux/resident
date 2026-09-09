@@ -120,3 +120,67 @@ test("the holders' share on the page is the share the contract enforces", async 
   const row = PARAMETERS.find((p) => p.meaning === "Holders' share of profit");
   assert.equal(row.value, `${share}%`);
 });
+
+/**
+ * The lockfile has to agree with package.json about which dependencies are
+ * production ones.
+ *
+ * `npm ci` refuses to install at all when they disagree, and a container build
+ * is where that surfaces: the tests pass locally against a full install, and
+ * the deploy fails with a message about the lockfile being out of sync. Moving
+ * a package between dependencies and devDependencies without regenerating the
+ * lock is the way in.
+ */
+test("every production dependency is a production dependency in the lockfile", async () => {
+  const { readFileSync } = await import("node:fs");
+  const pkg = JSON.parse(readFileSync("package.json", "utf8"));
+  const lock = JSON.parse(readFileSync("package-lock.json", "utf8"));
+  const root = lock.packages[""];
+
+  for (const name of Object.keys(pkg.dependencies ?? {})) {
+    assert.ok(
+      name in (root.dependencies ?? {}),
+      `${name} is a dependency in package.json but not in the lockfile. ` +
+        "Run npm install --package-lock-only.",
+    );
+    assert.ok(
+      !(name in (root.devDependencies ?? {})),
+      `${name} is in both sections of the lockfile.`,
+    );
+  }
+
+  for (const name of Object.keys(pkg.devDependencies ?? {})) {
+    assert.ok(
+      !(name in (root.dependencies ?? {})),
+      `${name} is a devDependency in package.json and a dependency in the lockfile.`,
+    );
+  }
+});
+
+/** The container installs without dev dependencies, so the keeper cannot need one. */
+test("nothing the keeper imports is a dev dependency", async () => {
+  const { readFileSync, readdirSync } = await import("node:fs");
+  const pkg = JSON.parse(readFileSync("package.json", "utf8"));
+  const dev = new Set(Object.keys(pkg.devDependencies ?? {}));
+
+  const files = [
+    "scripts/keeper.mjs",
+    ...readdirSync("src/lib/keeper").map((f) => `src/lib/keeper/${f}`),
+  ];
+
+  for (const file of files) {
+    const source = readFileSync(file, "utf8");
+    for (const match of source.matchAll(/from "([^".][^"]*)"/g)) {
+      const spec = match[1];
+      if (spec.startsWith("node:") || spec.startsWith("@/")) continue;
+      const name = spec.startsWith("@")
+        ? spec.split("/").slice(0, 2).join("/")
+        : spec.split("/")[0];
+      assert.ok(
+        !dev.has(name),
+        `${file} imports ${name}, which is a devDependency and will not be ` +
+          "installed in the container.",
+      );
+    }
+  }
+});
