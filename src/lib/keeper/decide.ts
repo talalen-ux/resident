@@ -14,8 +14,11 @@
  *      by accident.
  *   3. Re-centre what has drifted. Free, in the sense that it needs no bridge
  *      and no new pool, and usually the largest available uplift.
- *   4. Deploy idle capital into the best eligible pool.
- *   5. Move capital across chains, last, because it is the only decision that
+ *   4. Rotate capital off a pool that has stopped working and onto one that
+ *      is. Nothing else asks this, and without it the desk leaks in a way that
+ *      never registers as a loss.
+ *   5. Deploy idle capital into the best eligible pool.
+ *   6. Move capital across chains, last, because it is the only decision that
  *      cannot be reversed inside one interval.
  *
  * Nothing here signs or submits. It returns intents, which the loop journals
@@ -25,6 +28,12 @@
 import type { Scan, ScanResult } from "../sim/scanner.ts";
 import { DEFAULT_SCAN, type ScanConfig } from "../sim/scanner.ts";
 import { shouldRebalance, type RebalanceCost } from "../sim/rebalance.ts";
+import {
+  DEFAULT_ROTATION,
+  rankRotations,
+  type HeldPosition,
+  type RotationConfig,
+} from "../sim/rotate.ts";
 import {
   DEFAULT_RETIRE,
   DEFAULT_SWEEP,
@@ -60,6 +69,15 @@ export type PositionObservation = {
   value: number;
   /** Pool price at the observation, in quote units. */
   price: number;
+  /**
+   * Value now less cost basis, in quote units.
+   *
+   * Positive means closing this position books a profit. It is NOT a cost of
+   * moving and never argues for holding; it only breaks a tie between two
+   * rotations that are otherwise equal, because a loss has to be absorbed by
+   * working capital and pauses holder accrual until it is earned back.
+   */
+  unrealised: number;
   /** The last observations of currentRate, oldest first, for the retire run. */
   recentRates: number[];
   /** Bounds a re-centred position would use, from the current price. */
@@ -82,6 +100,8 @@ export type DecideConfig = {
   scan: ScanConfig;
   sweep: SweepConfig;
   retire: RetireConfig;
+  /** When capital should leave a working pool for a better one. */
+  rotation: RotationConfig;
   costs: DeskCosts;
   /**
    * Leave this much quote uncommitted, in quote units.
@@ -98,6 +118,7 @@ export const DEFAULT_DECIDE: DecideConfig = {
   scan: DEFAULT_SCAN,
   sweep: DEFAULT_SWEEP,
   retire: DEFAULT_RETIRE,
+  rotation: DEFAULT_ROTATION,
   costs: { sweepGas: 2, rebalanceGas: 6, rebalanceSlippage: 0.001 },
   reserve: 250,
   minOpen: 250,
@@ -251,7 +272,77 @@ export function decide(
     }
   }
 
-  // 4. Deploy idle capital.
+  // 4. Rotate: capital sitting in a pool that has stopped working, while a
+  // better one is on the board.
+  //
+  // After re-centring rather than before, deliberately. A drifted position on a
+  // good pool is fixed by moving its range, which is one atomic call on a pool
+  // the desk has already priced; rotating it would pay a round trip to solve a
+  // problem the cheaper rule already solves. What rotation catches is the
+  // position that is NOT drifted and is simply in the wrong pool. Nothing else catches this. Every position can
+  // be above its floor, no retire rule trips, and the money is still in the
+  // pool that was best when it was deployed rather than the one that is best
+  // now — a leak that never shows up as a loss.
+  const rotatable: HeldPosition[] = [];
+  for (const position of input.state.positions) {
+    if (spokenFor.has(position.id)) continue;
+    const observation = observed.get(position.id);
+    if (!observation) continue;
+    rotatable.push({
+      name: position.pool,
+      chain: position.chain,
+      capital: position.capital,
+      currentRate: observation.currentRate,
+      unrealised: observation.unrealised,
+      ageIntervals: observation.ageIntervals,
+    });
+  }
+
+  const rotations = rankRotations(
+    rotatable,
+    input.scan.ranked,
+    {
+      gas: config.costs.rebalanceGas,
+      slippageFraction: config.costs.rebalanceSlippage,
+    },
+    config.rotation,
+  );
+
+  const worst = rotations[0];
+  if (worst?.rotate && worst.to) {
+    const position = input.state.positions.find((p) => p.pool === worst.from.name);
+    if (position) {
+      spokenFor.add(position.id);
+      // Two intents, in order: the close frees the capital the open commits.
+      // Not one atomic call, unlike re-centring — these are different pools, so
+      // there is nothing to net, and a close that lands without its open leaves
+      // idle capital the next tick deploys rather than a lost position.
+      intents.push({
+        id: intentId("close", now),
+        kind: "close",
+        positionId: position.id,
+        reason: `rotating out: ${worst.reason}`,
+      });
+      intents.push({
+        id: intentId("open", now),
+        kind: "open",
+        chain: worst.to.pool.chain,
+        pool: worst.to.pool.name,
+        venueKind: worst.to.pool.kind,
+        capital: Math.min(position.capital, worst.to.capital),
+        lower: 0,
+        upper: 0,
+        halfWidth: worst.to.halfWidth,
+        shape: worst.to.shape,
+        binCount: worst.to.binCount,
+        reason: `rotating in from ${worst.from.name}: ${worst.to.reason}`,
+      });
+    }
+  } else if (worst) {
+    passed.push({ subject: `${worst.from.name} rotate`, reason: worst.reason });
+  }
+
+  // 5. Deploy idle capital.
   const deployable = input.idleCapital - config.reserve;
   const held = new Set(input.state.positions.map((p) => p.pool));
   const target = bestOpenable(input.scan.ranked, held);
@@ -289,7 +380,7 @@ export function decide(
     });
   }
 
-  // 5. Cross chains.
+  // 6. Cross chains.
   if (input.scan.move?.move) {
     intents.push({
       id: intentId("bridge", now),

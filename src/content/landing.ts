@@ -50,12 +50,16 @@ export const STEPS = [
   },
 ];
 
-export const EDGE_HEADING = "Three things this does differently.";
+export const EDGE_HEADING = "Four things this does differently.";
 
 export const EDGE = [
   {
     label: "Net, not yield",
     body: "Every liquidity dashboard publishes fee income. Fees are the flattering half: a position can collect handsomely while the price move underneath it costs more than the fees bring in. Resident publishes fees less what the price move cost, over the same window, including when that number is negative.",
+  },
+  {
+    label: "Capital that follows the fees",
+    body: "A position can be perfectly healthy and still be in the wrong pool: above its floor, nothing wrong with it, earning a fraction of what something else on the board pays. Nothing about that looks like a loss, so most desks never move it. Resident compares every open position against the best pool available each interval and rotates when the difference clears three times what the round trip costs.",
   },
   {
     label: "Two chains, one ranking",

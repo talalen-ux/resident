@@ -197,7 +197,7 @@ const held = (over = {}) => ({
 
 const observed = (over = {}) => ({
   positionId: "p1", currentRate: 0.00002, feesUnclaimed: 10, recentRates: [0.00002],
-  value: 10_000, price: 100, freshLower: 95, freshUpper: 105,
+  value: 10_000, price: 100, unrealised: 0, freshLower: 95, freshUpper: 105,
   ageIntervals: 100, intervalsSinceSweep: 2,
   ...over,
 });
@@ -481,4 +481,64 @@ test("re-centring is counted, and the ledger follows the capital", () => {
 
 test("a position nothing settled for never enters the ledger", () => {
   assert.deepEqual(ledgerFrom([{ at: 1, kind: "intent", intent: openIntent("o9") }]), []);
+});
+
+/* ---------------------------------------------------------------- rotation */
+
+const RANGING2 = [100, 104, 97, 102, 96, 101, 99, 103, 98, 100, 102, 99];
+const richPool = {
+  name: "MOO/USDG", chain: "robinhood", kind: "band",
+  volume: 400_000, volatility: 0.003, liquidity: 120_000, feePips: 3000,
+  prices: RANGING2,
+};
+
+/**
+ * The leak the other rules do not catch: the position is fine, nothing trips a
+ * retire, and a pool on the board is paying far more.
+ */
+test("capital rotates off a working pool onto a better one", () => {
+  const board = scan([POOL, richPool], null, 20_000, {});
+  // Earning exactly what a fresh position on its own pool would, so it has not
+  // drifted and re-centring has nothing to offer. The only thing wrong with
+  // this position is that it is in the wrong pool, which is the case no other
+  // rule looks at.
+  const onRate = board.ranked.find((r) => r.pool.name === "AMC/USDG").netRate;
+  const { intents, passed } = decide(
+    input({
+      scan: board,
+      state: { positions: [held()], inFlight: [], sweptTotal: 0, lastRecordAt: 0, lastHealthyAt: 0 },
+      observations: [observed({ currentRate: onRate, ageIntervals: 900, unrealised: 300 })],
+    }),
+  );
+  const close = intents.find((i) => i.kind === "close");
+  const open = intents.find((i) => i.kind === "open");
+  assert.ok(close, "the laggard is closed");
+  assert.match(close.reason, /rotating out/);
+  assert.ok(open, "and the capital is committed to the winner");
+  assert.equal(open.pool, "MOO/USDG");
+  assert.ok(open.halfWidth > 0, "the width the model chose travels with it");
+  assert.equal(passed.some((p) => /rotate/.test(p.subject)), false);
+});
+
+test("a position already earning the best rate is left where it is", () => {
+  const { intents, passed } = decide(
+    input({
+      state: { positions: [held()], inFlight: [], sweptTotal: 0, lastRecordAt: 0, lastHealthyAt: 0 },
+      observations: [observed({ currentRate: 1, ageIntervals: 900, unrealised: 0 })],
+    }),
+  );
+  assert.equal(intents.filter((i) => i.kind === "close").length, 0);
+  assert.ok(passed.some((p) => /rotate/.test(p.subject)));
+});
+
+test("a position being retired is not also rotated", () => {
+  const { intents } = decide(
+    input({
+      scan: scan([POOL, richPool], null, 20_000, {}),
+      state: { positions: [held()], inFlight: [], sweptTotal: 0, lastRecordAt: 0, lastHealthyAt: 0 },
+      observations: [observed({ recentRates: Array(20).fill(-0.001), ageIntervals: 900 })],
+    }),
+  );
+  assert.equal(intents.filter((i) => i.kind === "close").length, 1, "closed once, not twice");
+  assert.equal(intents.filter((i) => i.kind === "open" && i.pool === "MOO/USDG").length, 0);
 });
