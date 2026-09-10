@@ -33,8 +33,17 @@ RUN node --experimental-strip-types scripts/selftest.mjs
 # The journal is the record of what the desk owns. It MUST be on a volume:
 # without one, every redeploy loses the file and the keeper restarts believing
 # it holds nothing, which is how a position gets opened twice.
+#
+# There is no VOLUME directive here. Railway rejects a Dockerfile containing one
+# ("docker VOLUME is not supported, use Railway Volumes"), and a VOLUME
+# directive only ever declared an anonymous volume a platform was free to
+# ignore: it stated the requirement and enforced nothing. The variable below
+# makes the keeper check the filesystem at startup and refuse to run if /data is
+# part of the image rather than a mount.
+#
+# On Railway: Service, Settings, Volumes, Add Volume, mount path /data.
 ENV RESIDENT_JOURNAL=/data/keeper.ndjson
-VOLUME ["/data"]
+ENV RESIDENT_REQUIRE_VOLUME=1
 
 # Verify the chain constants, then run the keeper. Every address in
 # src/lib/chain.ts was transcribed from Robinhood's docs, and this is the first

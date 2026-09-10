@@ -125,6 +125,17 @@ The journal is the record of what the desk owns. Without a volume every
 redeploy loses it, and the keeper restarts believing it holds nothing. That is
 how the same position gets opened twice.
 
+**The keeper now refuses to start without one.** At startup it checks whether
+`/data` is a mounted filesystem or just a directory inside the image, and exits
+naming the difference. Forgetting the volume used to be a silent mistake that
+only showed up as a duplicated position weeks later; it is now a failed deploy
+with a message. The startup log prints `volume /data (durable)` when it is
+right.
+
+(The Dockerfile has no `VOLUME` directive: Railway rejects any Dockerfile that
+contains one. It would not have helped anyway — it declared an anonymous volume
+the platform was free to ignore.)
+
 ### Add the variables
 
 **Service → Variables → New Variable**, one at a time. Raw editor works too.

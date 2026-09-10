@@ -21,9 +21,10 @@
  *   --journal=PATH     where to append (default .keeper/dry-run.ndjson)
  */
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 
 import { FileJournal } from "../src/lib/keeper/journal-file.ts";
+import { checkJournalVolume, volumeFailure } from "../src/lib/keeper/volume.ts";
 import { DryRunSigner, SimulatingSigner } from "../src/lib/keeper/signer.ts";
 import { addressOf, localSigner } from "../src/lib/keeper/signer-local.ts";
 import { dryRunExecutor } from "../src/lib/keeper/executor-dryrun.ts";
@@ -58,6 +59,29 @@ const journalPath = arg(
   "journal",
   process.env.RESIDENT_JOURNAL ?? ".keeper/dry-run.ndjson",
 );
+/**
+ * Refuse to start if the journal would not survive a redeploy.
+ *
+ * Only when RESIDENT_REQUIRE_VOLUME says to, which the container image sets and
+ * a laptop does not. The Dockerfile used to declare this with a VOLUME
+ * directive; Railway rejects a Dockerfile that has one, and a VOLUME directive
+ * enforced nothing anyway. This asks the filesystem instead.
+ */
+if (process.env.RESIDENT_REQUIRE_VOLUME === "1") {
+  const verdict = checkJournalVolume(journalPath, (path) => {
+    try {
+      return statSync(path).dev;
+    } catch {
+      return null;
+    }
+  });
+  if (!verdict.durable) {
+    console.error(`\n${volumeFailure(journalPath, verdict)}\n`);
+    process.exit(1);
+  }
+  console.log(`  volume    ${verdict.mountPoint} (durable)`);
+}
+
 const intervalSeconds = Number(arg("interval", "60"));
 const once = process.argv.includes("--once");
 
