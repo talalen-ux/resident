@@ -16,7 +16,7 @@ import {
   signEip1559,
 } from "../src/lib/keeper/signer-local.ts";
 import { MAINNET, TESTNET } from "../src/lib/chain.ts";
-import { checkSigner } from "../src/lib/keeper/signer.ts";
+import { SimulatingSigner, checkSigner } from "../src/lib/keeper/signer.ts";
 
 const KEY = "0x" + "11".repeat(32);
 const ADDRESS = new Wallet(KEY).address;
@@ -153,4 +153,68 @@ test("this key is refused outright if it is the vault owner", () => {
 
   const proper = checkSigner(ADDRESS, { owner: "0x" + "99".repeat(20), keeper: ADDRESS });
   assert.equal(proper.ok, true);
+});
+
+test("the simulating signer puts every call to the node and signs nothing", async () => {
+  const seen = [];
+  const signer = new SimulatingSigner(async (method, params) => {
+    seen.push({ method, params });
+    return "0x5208";
+  }, "0x1111111111111111111111111111111111111111");
+
+  assert.equal(signer.dryRun, true);
+  assert.equal(await signer.address(), "0x1111111111111111111111111111111111111111");
+
+  const { hash } = await signer.send({
+    to: "0x2222222222222222222222222222222222222222",
+    data: "0xdeadbeef",
+    description: "mint AI/USDG",
+  });
+
+  assert.equal(hash, "sim:1");
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].method, "eth_estimateGas");
+  assert.equal(seen[0].params[0].from, "0x1111111111111111111111111111111111111111");
+  assert.equal(seen[0].params[0].to, "0x2222222222222222222222222222222222222222");
+  assert.equal(seen[0].params[0].data, "0xdeadbeef");
+  // Absent value must still be sent as zero, not as undefined.
+  assert.equal(seen[0].params[0].value, "0x0");
+});
+
+test("a call that would revert is raised as WouldRevert, carrying the reason", async () => {
+  const signer = new SimulatingSigner(async () => {
+    throw new Error("execution reverted: VenueNotAllowed");
+  }, "0x1111111111111111111111111111111111111111");
+
+  await assert.rejects(
+    () =>
+      signer.send({
+        to: "0x2222222222222222222222222222222222222222",
+        data: "0x00",
+        description: "mint AI/USDG",
+      }),
+    (error) => {
+      assert.equal(error.name, "WouldRevert");
+      // The description says which intent failed, the reason says why. Losing
+      // either one leaves an operator guessing.
+      assert.match(error.message, /mint AI\/USDG would revert/);
+      assert.match(error.message, /VenueNotAllowed/);
+      assert.equal(error.call.description, "mint AI/USDG");
+      return true;
+    },
+  );
+});
+
+test("the simulating signer records the call even when the node rejects it", async () => {
+  const signer = new SimulatingSigner(async () => {
+    throw new Error("execution reverted");
+  }, "0x1111111111111111111111111111111111111111");
+
+  await assert.rejects(() =>
+    signer.send({ to: "0x22", data: "0x00", description: "mint" }),
+  );
+  // The point of a simulation run is the list of what was attempted. A call
+  // that reverted is the most interesting entry in it.
+  assert.equal(signer.calls.length, 1);
+  assert.equal(signer.calls[0].description, "mint");
 });

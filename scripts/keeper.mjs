@@ -24,7 +24,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 
 import { FileJournal } from "../src/lib/keeper/journal-file.ts";
-import { DryRunSigner } from "../src/lib/keeper/signer.ts";
+import { DryRunSigner, SimulatingSigner } from "../src/lib/keeper/signer.ts";
 import { addressOf, localSigner } from "../src/lib/keeper/signer-local.ts";
 import { dryRunExecutor } from "../src/lib/keeper/executor-dryrun.ts";
 import { makeV4Executor } from "../src/lib/keeper/executor-v4.ts";
@@ -79,13 +79,23 @@ const rpc = jsonRpc(RPC);
 /**
  * A key, or nothing.
  *
- * Without RESIDENT_KEEPER_KEY the loop builds every call and signs none of
- * them, which is the mode to leave running for a week before any of this
- * touches money. With one, it signs — and refuses mainnet unless
- * RESIDENT_ALLOW_MAINNET says that is intended, checked against the chain id
- * the node reports on every transaction rather than once at startup.
+ * Three modes, in the order they should be used:
+ *
+ *   neither variable set        every call is built and journalled, nothing is
+ *                               sent and nothing is checked
+ *   RESIDENT_KEEPER_ADDRESS     every call is built and put to the node as
+ *                               eth_estimateGas, so a mint that would revert
+ *                               says so before a key exists anywhere
+ *   RESIDENT_KEEPER_KEY         it signs, and refuses mainnet unless
+ *                               RESIDENT_ALLOW_MAINNET says that is intended,
+ *                               checked against the chain id the node reports
+ *                               on every transaction rather than once at start
+ *
+ * The middle one needs the keeper's address and not its key. Take the address
+ * from `npm run newkey` and leave the key wherever it is until it is clean.
  */
 const KEY = process.env.RESIDENT_KEEPER_KEY;
+const KEEPER_ADDRESS = process.env.RESIDENT_KEEPER_ADDRESS;
 const signer = KEY
   ? localSigner({
       rpc,
@@ -95,7 +105,13 @@ const signer = KEY
         ? Number(process.env.RESIDENT_CHAIN_ID)
         : undefined,
     })
-  : new DryRunSigner();
+  : KEEPER_ADDRESS
+    ? // Address without key: every call is built for real and put to the node
+      // as eth_estimateGas, which reverts wherever a real send would. This is
+      // the step between "the encoding looks right" and "the chain agrees",
+      // and it costs nothing but a round trip.
+      new SimulatingSigner(rpc, KEEPER_ADDRESS)
+    : new DryRunSigner();
 const reader = rpcReader(RPC);
 
 const VAULT = process.env.RESIDENT_VAULT;

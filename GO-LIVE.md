@@ -34,10 +34,23 @@ To run it by hand from anywhere that can reach the RPC:
 
 ```bash
 npm ci
-RESIDENT_NETWORK=testnet RESIDENT_RPC_URL=https://... npm run verify:chain
+RESIDENT_RPC_URL=https://rpc.mainnet.chain.robinhood.com npm run verify:chain
 ```
 
 If anything fails here, stop. Everything below is built on those addresses.
+
+### Verify against mainnet, not testnet
+
+`chain.ts` holds **one** set of Uniswap and token addresses, taken from
+Robinhood's docs, and they are mainnet addresses. Only the name, chain id, RPC
+and explorer differ between the two networks. So `RESIDENT_NETWORK=testnet`
+checks mainnet contracts against a chain that does not have them: every row
+comes back NO CODE, and none of those failures mean anything. The verifier now
+says so rather than letting you read a wall of red.
+
+Reading mainnet is free and needs no key, and it is the only place the pools
+the desk actually trades exist. Testnet would tell you nothing about turnover,
+volatility or fee capture, because none of it is real there.
 
 ## 2. Make a keeper key
 
@@ -77,7 +90,6 @@ after the gas is spent.
 
 ```bash
 export RESIDENT_VAULT=0xYourVault
-export RESIDENT_NETWORK=testnet
 
 npm run owner -- set-venue 0x000000000022D473030F116dDEE9F6B43aC78BA3 true
 npm run owner -- set-venue 0x58daec3116aae6d93017baaea7749052e8a04fa7 true
@@ -119,11 +131,32 @@ how the same position gets opened twice.
 
 | Variable | Value |
 |---|---|
-| `RESIDENT_RPC_URL` | your Robinhood Chain RPC |
-| `RESIDENT_NETWORK` | `testnet` |
+| `RESIDENT_RPC_URL` | your Robinhood Chain mainnet RPC |
 | `RESIDENT_VAULT` | the address from step 3 |
 | `RESIDENT_JOURNAL` | `/data/keeper.ndjson` |
+| `RESIDENT_KEEPER_ADDRESS` | the keeper address from step 2 |
 | `RESIDENT_KEEPER_KEY` | **leave this out for now** |
+
+Leave `RESIDENT_NETWORK` unset. Mainnet is the default, and it is where the
+pools are.
+
+### The three modes, in the order to use them
+
+The keeper decides what it is allowed to do from those last two variables
+alone, so moving between modes is a variable change and a redeploy.
+
+| Set | What happens |
+|---|---|
+| neither | every call is built and journalled, nothing is sent, nothing is checked |
+| `RESIDENT_KEEPER_ADDRESS` | every call is also put to the node as `eth_estimateGas`, so a mint that would revert says so — with **no key anywhere** |
+| `RESIDENT_KEEPER_KEY` | it signs. Mainnet additionally needs `RESIDENT_ALLOW_MAINNET=1`, checked on every transaction against the chain id the node reports |
+
+The middle mode is the one that replaces a testnet run. `eth_estimateGas`
+executes the whole call against current state and reverts exactly where a real
+send would, against the real pool, the real allowlist and the real balances.
+A testnet cannot offer that, because none of those things are real there.
+
+Do not move to the third until the second is clean.
 
 ### Check the replica count
 
@@ -131,15 +164,26 @@ how the same position gets opened twice.
 vault both decide, both submit, and the nonce collision looks like a random
 revert.
 
-## 7. Run it for a week with no key
+## 7. Run it with no key
 
 With `RESIDENT_KEEPER_KEY` unset, the keeper reads the chain, ranks pools,
 builds every transaction it would send, and signs none of them. The logs show
 what it would have done; `/data/keeper.ndjson` is the record.
 
-This is the only way to find out the encoding is wrong without paying for the
-discovery. Leave it. Read the journal. Check what those pools actually paid
-against what the board said they would.
+Two things are being checked here and they are not the same thing.
+
+**Does the encoding survive the EVM?** With `RESIDENT_KEEPER_ADDRESS` set, every
+call goes to the node as `eth_estimateGas` and reverts wherever a real send
+would. A missing venue on the allowlist, a Permit2 approval that was never made,
+a balance the plan overran: all of them surface here, against the real
+contracts, for the price of an RPC round trip and no key. Answered in minutes,
+not days. Fix anything it raises before going further.
+
+**Is the model right?** That takes a week, and no simulation shortens it. Leave
+it running, read the journal, and check what those pools actually paid against
+what the board said they would. Fee capture in particular is a measurement, not
+a setting, and until there are samples the scanner prices entries at an assumed
+0.5 rather than at anything observed.
 
 ## 8. Add the key
 
@@ -171,13 +215,18 @@ money through bad positions on an allowlisted venue.
 
 Watch the first position open. Watch the first sweep. Then decide about size.
 
-## 10. Mainnet
+## 10. Let it sign on mainnet
 
-Everything above, with `RESIDENT_NETWORK` unset and
-`RESIDENT_ALLOW_MAINNET=1`. Without that variable the signer refuses chain 4663,
+Everything above reads mainnet and sends nothing. Signing there needs one more
+variable, `RESIDENT_ALLOW_MAINNET=1`. Without it the signer refuses chain 4663,
 checked against the chain id the node reports on **every** transaction, because
 an RPC URL is an environment variable and a keeper that follows its RPC onto
 mainnet is the failure that guard exists to prevent.
+
+Two gates, deliberately separate: `RESIDENT_KEEPER_KEY` decides whether it can
+sign at all, `RESIDENT_ALLOW_MAINNET` decides whether it may do so here. Reading
+mainnet was never gated, because reading costs nothing and is where the real
+pools are.
 
 Before you do: the contracts have not been audited.
 

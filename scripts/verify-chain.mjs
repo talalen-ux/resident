@@ -53,6 +53,28 @@ if (!config.vault) {
   console.log("  (no RESIDENT_VAULT set — checking everything except the vault)\n");
 }
 
+// The Uniswap and token addresses in chain.ts are one set, taken from
+// Robinhood's docs, and those are mainnet addresses. Pointing them at the
+// testnet RPC checks mainnet contracts against a chain that does not have them,
+// so every row comes back NO CODE and none of those failures mean anything.
+// Say so here rather than let someone spend an hour on a wall of red.
+const OVERRIDES = [
+  "RESIDENT_V3_FACTORY",
+  "RESIDENT_V3_QUOTER",
+  "RESIDENT_V3_ROUTER",
+  "RESIDENT_V3_POSITION_MANAGER",
+  "RESIDENT_USDG",
+];
+if (process.env.RESIDENT_NETWORK === "testnet" && !OVERRIDES.some((k) => process.env[k])) {
+  console.log(
+    "  \x1b[33mWarning\x1b[0m: RESIDENT_NETWORK=testnet, but the addresses in\n" +
+      "  chain.ts are mainnet addresses and none have been overridden. Expect\n" +
+      "  every bytecode check to fail for that reason alone. Either set the\n" +
+      "  testnet addresses explicitly, or verify against mainnet — reading it\n" +
+      "  costs nothing and needs no key.\n",
+  );
+}
+
 // 1. Chain id.
 try {
   const actual = Number(await rpc("eth_chainId"));

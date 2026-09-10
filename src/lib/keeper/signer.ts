@@ -58,6 +58,75 @@ export class DryRunSigner implements Signer {
   }
 }
 
+/** Raised when the node says a call would revert. Carries what it said. */
+export class WouldRevert extends Error {
+  readonly call: UnsignedCall;
+  constructor(call: UnsignedCall, reason: string) {
+    super(`${call.description} would revert: ${reason}`);
+    this.name = "WouldRevert";
+    this.call = call;
+  }
+}
+
+/**
+ * Signs nothing, but asks the node whether the call would work.
+ *
+ * The gap this closes: {@link DryRunSigner} proves the keeper builds the
+ * calldata it means to build, and proves nothing about whether that calldata
+ * survives contact with the EVM. A v4 mint pulls tokens through Permit2 and
+ * touches the vault's venue allowlist, its caps and its balances, and every one
+ * of those can reject a call that is encoded perfectly.
+ *
+ * eth_estimateGas executes the whole call against current state and reverts
+ * exactly where a real send would, so this is that same test for the price of
+ * an RPC round trip. It is worth more than the same run on a testnet: the state
+ * it executes against is the real pool, the real allowlist and the real
+ * balance, not an imitation of them.
+ *
+ * It needs the keeper's ADDRESS and not its key. Take the address from
+ * `npm run newkey` and leave the key wherever it is until the simulation is
+ * clean.
+ */
+export class SimulatingSigner implements Signer {
+  readonly dryRun = true;
+  readonly description: string;
+  readonly calls: UnsignedCall[] = [];
+  private readonly rpc: (method: string, params: unknown[]) => Promise<unknown>;
+  private readonly from: string;
+
+  constructor(
+    rpc: (method: string, params: unknown[]) => Promise<unknown>,
+    from: string,
+  ) {
+    this.rpc = rpc;
+    this.from = from;
+    this.description = `simulating as ${from} (signs nothing)`;
+  }
+
+  async address(): Promise<string> {
+    return this.from;
+  }
+
+  async send(call: UnsignedCall): Promise<SentCall> {
+    this.calls.push(call);
+    try {
+      await this.rpc("eth_estimateGas", [
+        {
+          from: this.from,
+          to: call.to,
+          data: call.data,
+          value: `0x${(call.value ?? 0n).toString(16)}`,
+        },
+      ]);
+    } catch (error) {
+      // A revert here is the finding, not a failure of the run: it is the
+      // discovery that would otherwise have cost a mint's worth of gas.
+      throw new WouldRevert(call, error instanceof Error ? error.message : String(error));
+    }
+    return { hash: `sim:${this.calls.length}` };
+  }
+}
+
 /**
  * A signer backed by something outside this process — a KMS, an HSM, a remote
  * signing service.
