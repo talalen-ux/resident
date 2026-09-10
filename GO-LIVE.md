@@ -20,12 +20,21 @@ The keeper key goes on Railway. **The owner never does.**
 ## 1. Check the chain constants
 
 Every address in `src/lib/chain.ts` was transcribed from Robinhood's docs and
-has never been read from the chain. Do this from a machine that can reach the
-RPC — it needs no key and changes nothing.
+has never been read from the chain. It needs no key and no vault, and changes
+nothing.
+
+**This now runs by itself on Railway.** The container's start command verifies
+the chain and only then starts the keeper, so the first deploy prints the whole
+check into the deploy log. It fails closed: if verification fails the keeper
+does not start, which is the behaviour you want from something that is about to
+open positions. Railway retries on failure, so a transient RPC blip recovers on
+its own while a wrong address keeps failing.
+
+To run it by hand from anywhere that can reach the RPC:
 
 ```bash
 npm ci
-RESIDENT_NETWORK=testnet npm run verify:chain
+RESIDENT_NETWORK=testnet RESIDENT_RPC_URL=https://... npm run verify:chain
 ```
 
 If anything fails here, stop. Everything below is built on those addresses.

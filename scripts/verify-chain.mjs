@@ -7,8 +7,11 @@
  * Robinhood Chain RPC. This closes that gap: run it once from somewhere with
  * network access, before anything touches money.
  *
- *   RESIDENT_USDG=0x... RESIDENT_VAULT=0x... \
+ *   RESIDENT_RPC_URL=https://... RESIDENT_NETWORK=testnet \
  *     node --experimental-strip-types scripts/verify-chain.mjs
+ *
+ * Needs no vault and no key. It is the first thing to run when going live,
+ * before the vault it would otherwise ask for exists.
  *
  * Checks:
  *   - the RPC answers, and its chain id matches what we expect
@@ -19,7 +22,7 @@
  * Exit code is non-zero if anything fails, so it can gate a deploy.
  */
 
-import { ALL_TOKENS, addressManifest, requireChain } from "../src/lib/chain.ts";
+import { ALL_TOKENS, addressManifest, chainBeforeVault } from "../src/lib/chain.ts";
 
 const rpc = async (method, params = []) => {
   const res = await fetch(config.rpcUrl, {
@@ -35,7 +38,7 @@ const rpc = async (method, params = []) => {
 
 let config;
 try {
-  config = requireChain();
+  config = chainBeforeVault();
 } catch (err) {
   console.error(`\n${err.message}\n`);
   process.exit(2);
@@ -46,6 +49,9 @@ const bad = (s) => `  \x1b[31m✗\x1b[0m ${s}`;
 let failures = 0;
 
 console.log(`\nVerifying ${config.name} at ${config.rpcUrl}\n`);
+if (!config.vault) {
+  console.log("  (no RESIDENT_VAULT set — checking everything except the vault)\n");
+}
 
 // 1. Chain id.
 try {

@@ -21,7 +21,8 @@
     "owner": "node --experimental-strip-types scripts/owner.mjs",
     "newkey": "node --experimental-strip-types scripts/newkey.mjs",
     "deploy": "node --experimental-strip-types scripts/deploy.mjs",
-    "selftest": "node --experimental-strip-types scripts/selftest.mjs"
+    "selftest": "node --experimental-strip-types scripts/selftest.mjs",
+    "boot": "npm run verify:chain && npm run keeper -- --journal=/data/keeper.ndjson"
   },
   "dependencies": {
     "ethers": "^6.17.0",

@@ -177,19 +177,21 @@ export function missingKeys(env: NodeJS.ProcessEnv = process.env): string[] {
 export const isConfigured = (env: NodeJS.ProcessEnv = process.env) =>
   missingKeys(env).length === 0;
 
-/** Resolve the chain config, or throw naming what is missing and why. */
-export function requireChain(
+/**
+ * Resolve the chain without demanding a vault.
+ *
+ * The vault is the one address here that we deploy ourselves, so there is a
+ * window — everything before the deploy — where the rest of the manifest is
+ * worth checking and the vault cannot be. Verifying the addresses is the FIRST
+ * step of going live and deploying the vault is the third; requiring a vault to
+ * resolve the chain made the first step impossible to run in that order.
+ *
+ * `vault` is the empty string when unset. Callers that spend money must use
+ * requireChain instead, which refuses to resolve at all without one.
+ */
+export function chainBeforeVault(
   env: NodeJS.ProcessEnv = process.env,
 ): ChainConfig {
-  const missing = REQUIRED.filter(([key]) => !env[key]);
-  if (missing.length) {
-    throw new Error(
-      "Robinhood Chain is not fully configured:\n" +
-        missing.map(([key, why]) => `  ${key} — ${why}`).join("\n") +
-        "\nSee INTEGRATIONS.md.",
-    );
-  }
-
   const testnet = env.RESIDENT_NETWORK === "testnet";
   const net = testnet ? TESTNET : MAINNET;
 
@@ -199,7 +201,7 @@ export function requireChain(
     rpcUrl: env.RESIDENT_RPC_URL ?? net.rpcUrl,
     explorer: env.RESIDENT_EXPLORER ?? net.explorer,
     usdg: env.RESIDENT_USDG ?? TOKENS.usdg,
-    vault: env.RESIDENT_VAULT!,
+    vault: env.RESIDENT_VAULT ?? "",
     resToken: env.RESIDENT_TOKEN ?? null,
     uniswap: {
       ...UNISWAP,
@@ -221,7 +223,28 @@ export function requireChain(
   };
 }
 
-/** Every address the desk will interact with, for the verifier to walk. */
+/** Resolve the chain config, or throw naming what is missing and why. */
+export function requireChain(
+  env: NodeJS.ProcessEnv = process.env,
+): ChainConfig {
+  const missing = REQUIRED.filter(([key]) => !env[key]);
+  if (missing.length) {
+    throw new Error(
+      "Robinhood Chain is not fully configured:\n" +
+        missing.map(([key, why]) => `  ${key} — ${why}`).join("\n") +
+        "\nSee INTEGRATIONS.md.",
+    );
+  }
+  return chainBeforeVault(env);
+}
+
+/**
+ * Every address the desk will interact with, for the verifier to walk.
+ *
+ * The vault is included only once it exists. Before the deploy there is nothing
+ * at that address, and reporting "no code" for it would be noise sitting next
+ * to the failures that matter.
+ */
 export function addressManifest(config: ChainConfig): Array<[string, string]> {
   return [
     ["USDG", config.usdg],
@@ -237,6 +260,6 @@ export function addressManifest(config: ChainConfig): Array<[string, string]> {
     ["UniversalRouter", config.uniswap.universalRouter],
     ["Permit2", config.uniswap.permit2],
     ["PonsV2LaunchFactory", config.pons.v2Factory],
-    ["ResidentVault", config.vault],
+    ...(config.vault ? [["ResidentVault", config.vault] as [string, string]] : []),
   ];
 }

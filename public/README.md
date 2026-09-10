@@ -5,9 +5,26 @@ live at the matching path:
 
 | File | URL |
 |---|---|
-| `public/brand/logo.svg` | `/brand/logo.svg` |
+| `public/brand/hero-route.png` | `/brand/hero-route.png` |
 | `public/whitepaper.pdf` | `/whitepaper.pdf` |
 | `public/brand/og.png` | `/brand/og.png` |
+
+## What is in here now
+
+Three marks, white with the dark green accent, on real transparency:
+
+| File | Shape |
+|---|---|
+| `/brand/hero-route.png` | the stepped route |
+| `/brand/hero-spiral.png` | the squared spiral |
+| `/brand/hero-converge.png` | three lines converging into one |
+
+They arrived as exports with the transparency checkerboard rendered into the
+pixels and the alpha channel dropped, which would have put a grey grid behind
+every mark. The checker sat entirely between luminance 110 and 209 with a clean
+gap up to the white of the mark, so it could be keyed back out. If you export
+more, ask for a transparent PNG and check that `file` says RGBA rather than
+RGB.
 
 Reference it in a component with a plain path, no import:
 

@@ -36,4 +36,12 @@ RUN node --experimental-strip-types scripts/selftest.mjs
 ENV RESIDENT_JOURNAL=/data/keeper.ndjson
 VOLUME ["/data"]
 
-CMD ["npm", "run", "keeper", "--", "--journal=/data/keeper.ndjson"]
+# Verify the chain constants, then run the keeper. Every address in
+# src/lib/chain.ts was transcribed from Robinhood's docs, and this is the first
+# place with network access to check them against the chain itself.
+#
+# It fails closed: a failed verification stops the keeper starting rather than
+# letting it act on addresses that could not be confirmed. Railway's ON_FAILURE
+# policy retries, so a transient RPC blip recovers on its own; a wrong address
+# keeps failing, which is the point.
+CMD ["npm", "run", "boot"]
