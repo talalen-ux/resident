@@ -1,0 +1,35 @@
+# The keeper image needs the keeper and nothing else. Everything below is
+# either the website, the test rig, or state that must not travel in an image.
+
+# Rebuilt inside the image. Copying a host tree in is how a native binary
+# compiled for the wrong platform ends up in production.
+node_modules
+.next
+out
+
+# The website. src/lib is self-contained, so none of this is reachable from
+# scripts/keeper.mjs.
+src/app
+src/components
+public
+next.config.ts
+postcss.config.mjs
+eslint.config.mjs
+
+# Built and checked in CI, not in the deployed image.
+test
+contracts
+.github
+
+# History, editor state, docs.
+.git
+.gitignore
+*.md
+images
+
+# State. A journal or a key that reached an image would be baked into every
+# layer of it.
+.keeper
+.env
+.env.*
+deploy.hex
