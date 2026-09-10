@@ -46,6 +46,7 @@ import {
 import { bestLadder } from "../sim/ladder.ts";
 import { intentId } from "./registry.ts";
 import type { Intent, KeeperState } from "./types.ts";
+import type { ManualOrder } from "./control.ts";
 
 /**
  * What the keeper has just measured about one open position.
@@ -155,6 +156,22 @@ export type DecideInput = {
   }[];
   /** Distribute once owed reaches this. */
   distributeAt: number;
+  /**
+   * Orders an operator has issued since the last tick.
+   *
+   * They take precedence over every rule below. An operator who has closed a
+   * position knows something the price history does not, and a rule that
+   * re-centres it in the same tick would be arguing with them.
+   */
+  manual?: ManualOrder[];
+  /**
+   * Stop opening anything new.
+   *
+   * Deliberately narrow: a paused desk still retires, sweeps and re-centres
+   * what it already holds. Pausing is for "commit no more capital", and a desk
+   * that also stopped tending its open positions would bleed while paused.
+   */
+  paused?: boolean;
   now?: number;
 };
 
@@ -196,6 +213,62 @@ export function decide(
 
   // Positions retired or re-centred this tick are not also swept or re-entered.
   const spokenFor = new Set<string>();
+
+  // 0. Manual orders.
+  //
+  // First, and they claim the position so nothing below revisits it. An
+  // operator closing a position has a reason the rules cannot see; the rules
+  // getting a second opinion in the same tick is how a manual close becomes a
+  // manual close followed by an automatic re-open.
+  const known = new Set(input.state.positions.map((p) => p.id));
+  for (const order of input.manual ?? []) {
+    if (order.kind === "close" || order.kind === "sweep") {
+      if (!known.has(order.positionId)) {
+        passed.push({
+          subject: `manual ${order.kind}`,
+          reason: `${order.positionId} is not a position this desk holds`,
+        });
+        continue;
+      }
+      spokenFor.add(order.positionId);
+      intents.push({
+        id: intentId(order.kind, now),
+        kind: order.kind,
+        positionId: order.positionId,
+        reason: `manual: ${order.note}`,
+      });
+      continue;
+    }
+
+    if (order.kind === "open") {
+      const target = byPool.get(order.pool);
+      if (!target) {
+        passed.push({
+          subject: "manual open",
+          reason: `${order.pool} is not on the board, so there is no width to place`,
+        });
+        continue;
+      }
+      // The width still comes from the model even when the entry came from a
+      // person. Choosing to be in a pool is a judgement; choosing how wide to
+      // sit in it is arithmetic, and doing that by hand is how a band ends up
+      // one move from out of range.
+      intents.push({
+        id: intentId("open", now),
+        kind: "open",
+        chain: target.pool.chain,
+        pool: target.pool.name,
+        venueKind: target.pool.kind,
+        capital: Math.min(order.capital, input.idleCapital),
+        lower: 0,
+        upper: 0,
+        halfWidth: target.halfWidth,
+        shape: target.shape,
+        binCount: target.binCount,
+        reason: `manual: ${order.note}`,
+      });
+    }
+  }
 
   // 1. Retire.
   for (const position of input.state.positions) {
@@ -419,7 +492,7 @@ export function decide(
   }
 
   // 6. Deploy idle capital.
-  const deployable = input.idleCapital - config.reserve;
+  const deployable = input.paused ? 0 : input.idleCapital - config.reserve;
   const held = new Set(input.state.positions.map((p) => p.pool));
   const target = bestOpenable(input.scan.ranked, held);
 

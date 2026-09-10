@@ -609,3 +609,86 @@ test("inventory already laddered is not laddered twice", () => {
   );
   assert.equal(intents.some((i) => i.venueKind === "ladder"), false);
 });
+
+test("a manual close beats every rule, and nothing re-opens it in the same tick", () => {
+  // The position is healthy by every automatic measure: earning, in range,
+  // recently swept. The operator closes it anyway.
+  const decision = decide(input({
+    state: { positions: [held()], inFlight: [], sweptTotal: 0, lastRecordAt: 0, lastHealthyAt: 0 },
+    observations: [observed({ currentRate: 0.0005, recentRates: Array(20).fill(0.0005) })],
+    manual: [{ kind: "close", positionId: "p1", note: "token is a rug" }],
+  }));
+
+  const closes = decision.intents.filter((i) => i.kind === "close");
+  assert.equal(closes.length, 1);
+  assert.match(closes[0].reason, /manual: token is a rug/);
+  // No sweep, no re-centre, no rotation on a position the operator has spoken
+  // for. A rule arguing with the operator in the same tick is the bug.
+  assert.equal(
+    decision.intents.filter((i) => i.positionId === "p1" && i.kind !== "close").length,
+    0,
+  );
+});
+
+test("a manual order against a position the desk does not hold is refused, not invented", () => {
+  const decision = decide(input({
+    manual: [{ kind: "close", positionId: "ghost", note: "" }],
+  }));
+  assert.equal(decision.intents.filter((i) => i.kind === "close").length, 0);
+  assert.ok(
+    decision.passed.some((p) => /not a position this desk holds/.test(p.reason)),
+    "the refusal should be explained",
+  );
+});
+
+test("a manual open still takes its width from the model", () => {
+  const base = input();
+  const target = base.scan.ranked[0];
+  const decision = decide({
+    ...base,
+    idleCapital: 50_000,
+    manual: [{ kind: "open", pool: target.pool.name, capital: 5_000, note: "better odds" }],
+  });
+  const opens = decision.intents.filter((i) => i.kind === "open");
+  assert.ok(opens.length >= 1);
+  const manual = opens.find((o) => /manual/.test(o.reason));
+  assert.ok(manual, "the manual open should be there");
+  assert.equal(manual.capital, 5_000);
+  // Choosing the pool is the operator's judgement. Choosing the width is
+  // arithmetic, and a hand-picked width is how a band sits one move from out
+  // of range.
+  assert.equal(manual.halfWidth, target.halfWidth);
+});
+
+test("a manual open cannot commit capital the desk does not have", () => {
+  const base = input();
+  const decision = decide({
+    ...base,
+    idleCapital: 800,
+    manual: [{ kind: "open", pool: base.scan.ranked[0].pool.name, capital: 999_999, note: "" }],
+  });
+  const manual = decision.intents.find((i) => i.kind === "open" && /manual/.test(i.reason));
+  assert.equal(manual.capital, 800);
+});
+
+test("pausing stops new capital going out but keeps tending what is open", () => {
+  const base = input();
+  const open = decide(input({ idleCapital: 50_000 }));
+  assert.ok(
+    open.intents.some((i) => i.kind === "open"),
+    "fixture should deploy when not paused",
+  );
+
+  const paused = decide({
+    ...base,
+    idleCapital: 50_000,
+    paused: true,
+    state: { positions: [held()], inFlight: [], sweptTotal: 0, lastRecordAt: 0, lastHealthyAt: 0 },
+    // A position that has stopped earning for a long run.
+    observations: [observed({ recentRates: Array(20).fill(-0.001) })],
+  });
+  assert.equal(paused.intents.filter((i) => i.kind === "open").length, 0);
+  // A paused desk that also stopped retiring would bleed while paused, which
+  // is the opposite of what the operator reached for the button to do.
+  assert.ok(paused.intents.some((i) => i.kind === "close"));
+});

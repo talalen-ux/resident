@@ -24,6 +24,7 @@ import {
 } from "./registry.ts";
 import { checkSigner, type Signer } from "./signer.ts";
 import { DEFAULT_DECIDE, decide, type DecideConfig, type PositionObservation } from "./decide.ts";
+import type { ManualOrder } from "./control.ts";
 import type { Intent, KeeperState } from "./types.ts";
 
 /** Everything the tick reads from outside itself. */
@@ -32,6 +33,10 @@ export type Observation = {
   pools: ScannedPool[];
   /** One entry per open position the keeper believes it holds. */
   positions: PositionObservation[];
+  /** Orders an operator issued since the last tick. Drained by observe(). */
+  manual?: ManualOrder[];
+  /** Commit no new capital. Open positions are still tended. */
+  paused?: boolean;
   /** Where the capital sits now, or null when nothing is deployed. */
   current: Venue | null;
   /** Uncommitted quote in the vault. */
@@ -182,6 +187,8 @@ export async function tick(
       state,
       scan: scanned,
       observations: observation.positions,
+      manual: observation.manual,
+      paused: observation.paused,
       idleCapital: observation.idleCapital,
       inventory: observation.inventory,
       unbookedProfit: observation.unbookedProfit,

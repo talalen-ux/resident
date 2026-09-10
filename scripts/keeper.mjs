@@ -36,7 +36,10 @@ import {
 import { seriesFrom } from "../src/lib/keeper/marks.ts";
 import { poolId as poolIdOf } from "../src/lib/sim/v4.ts";
 import { bandWidth } from "../src/lib/sim/strategy.ts";
-import { keccak256, solidityPacked } from "ethers";
+import { keccak256, solidityPacked, verifyMessage } from "ethers";
+import { createServer } from "node:http";
+import { randomBytes } from "node:crypto";
+import { BadOrder, Control, parseOrder } from "../src/lib/keeper/control.ts";
 import { DryRunSigner, SimulatingSigner } from "../src/lib/keeper/signer.ts";
 import { addressOf, localSigner } from "../src/lib/keeper/signer-local.ts";
 import { dryRunExecutor } from "../src/lib/keeper/executor-dryrun.ts";
@@ -349,6 +352,28 @@ const deps = {
       }
     }
 
+    // What the operator sees when deciding whether to close something. Plain
+    // values, and the same numbers the rules just decided on rather than a
+    // second reading that could disagree with them.
+    lastReport = {
+      ...lastReport,
+      positions: positions.map((p) => {
+        const held = state.positions.find((x) => x.id === p.positionId);
+        return {
+          id: p.positionId,
+          pool: held?.pool ?? "?",
+          handle: held?.handle ?? "",
+          value: p.value,
+          feesUnclaimed: p.feesUnclaimed,
+          unrealised: p.unrealised,
+          price: p.price,
+          currentRate: p.currentRate,
+          inRange: p.currentRate !== 0,
+          ageIntervals: p.ageIntervals,
+        };
+      }),
+    };
+
     // Loose tokens the desk holds, for the ladder rule. Priced off the same
     // board the scanner ranks, so a token with no live pool is not inventory.
     const inventory = await readInventory(
@@ -377,6 +402,10 @@ const deps = {
       pools,
       positions,
       current: null,
+      // Drained here so it happens exactly once per tick, whatever else the
+      // loop does. An order taken twice is a position closed twice.
+      manual: control?.drain() ?? [],
+      paused: control?.paused ?? false,
       idleCapital,
       inventory,
       unbookedProfit,
@@ -387,6 +416,120 @@ const deps = {
     };
   },
 };
+
+/** The last tick's summary, served to the dashboard. Replaced every tick. */
+let lastReport = { positions: [], board: [], idleCapital: 0, at: 0 };
+
+/**
+ * The operator's way in.
+ *
+ * Off unless RESIDENT_CONTROL_WALLET names an address. Authority is a signature
+ * from that wallet and nothing else: there is no shared secret to leak, and
+ * revoking access is a wallet change rather than a redeploy.
+ *
+ * Orders are queued and applied at the top of the next tick, as the same
+ * intents the rules emit. A manual close is journalled, submitted and
+ * reconciled exactly as an automatic one is.
+ */
+const CONTROL_WALLET = process.env.RESIDENT_CONTROL_WALLET;
+const control = CONTROL_WALLET
+  ? new Control({
+      wallet: CONTROL_WALLET,
+      verify: verifyMessage,
+      random: () => randomBytes(32).toString("hex"),
+      now: () => Date.now(),
+    })
+  : null;
+
+if (control) {
+  const origin = process.env.RESIDENT_CONTROL_ORIGIN ?? "*";
+  const port = Number(process.env.PORT ?? 8080);
+
+  const send = (res, status, body) => {
+    const payload = JSON.stringify(body);
+    res.writeHead(status, {
+      "content-type": "application/json",
+      "access-control-allow-origin": origin,
+      "access-control-allow-headers": "content-type, authorization",
+      "access-control-allow-methods": "GET, POST, OPTIONS",
+      // The book is not something to hand to a cache or a crawler.
+      "cache-control": "no-store",
+    });
+    res.end(payload);
+  };
+
+  const bodyOf = (req) =>
+    new Promise((resolve, reject) => {
+      let raw = "";
+      req.on("data", (chunk) => {
+        raw += chunk;
+        // A control endpoint has no reason to accept a large body, and an
+        // unbounded one is a way to exhaust a small container.
+        if (raw.length > 8192) reject(new BadOrder("body too large"));
+      });
+      req.on("end", () => {
+        try {
+          resolve(raw ? JSON.parse(raw) : {});
+        } catch {
+          reject(new BadOrder("body is not JSON"));
+        }
+      });
+      req.on("error", reject);
+    });
+
+  const bearer = (req) => {
+    const header = req.headers.authorization ?? "";
+    return header.startsWith("Bearer ") ? header.slice(7) : null;
+  };
+
+  createServer(async (req, res) => {
+    try {
+      if (req.method === "OPTIONS") return send(res, 204, {});
+      const url = new URL(req.url, "http://localhost");
+
+      if (req.method === "GET" && url.pathname === "/health") {
+        return send(res, 200, { ok: true });
+      }
+
+      if (req.method === "GET" && url.pathname === "/control/nonce") {
+        const { nonce, message, expiresAt } = control.begin();
+        return send(res, 200, { nonce, message, expiresAt });
+      }
+
+      if (req.method === "POST" && url.pathname === "/control/session") {
+        const body = await bodyOf(req);
+        const session = control.authenticate(String(body.nonce ?? ""), String(body.signature ?? ""));
+        return send(res, 200, session);
+      }
+
+      if (!control.authorised(bearer(req))) {
+        return send(res, 401, { error: "sign in with the desk wallet" });
+      }
+
+      if (req.method === "GET" && url.pathname === "/control/state") {
+        return send(res, 200, {
+          paused: control.paused,
+          pending: control.pending,
+          ...lastReport,
+        });
+      }
+
+      if (req.method === "POST" && url.pathname === "/control/order") {
+        const order = parseOrder(await bodyOf(req));
+        control.submit(order);
+        console.log(`  order     ${order.kind} ${JSON.stringify(order)}`);
+        return send(res, 202, { queued: order, paused: control.paused });
+      }
+
+      return send(res, 404, { error: "no such endpoint" });
+    } catch (error) {
+      const bad = error instanceof BadOrder || error?.name === "BadOrder";
+      return send(res, bad ? 400 : 500, { error: error.message ?? "failed" });
+    }
+  }).listen(port, () => {
+    console.log(`  control   :${port}, wallet ${control.wallet}`);
+  });
+}
 
 console.log(`  journal   ${journalPath}`);
 console.log(`  vault     ${VAULT ?? "unset (no calldata will be built)"}`);
@@ -404,6 +547,25 @@ console.log("");
 async function runOnce() {
   const report = await tick(deps, journal, DEFAULT_TICK);
   const when = new Date(report.at).toISOString().slice(11, 19);
+
+  // What the dashboard reads. Values only: it is served to a browser, and
+  // nothing here should be a live handle into the keeper's state.
+  lastReport = {
+    at: report.at,
+    halted: report.halted ?? null,
+    idleCapital: report.scan?.capital ?? 0,
+    board: (report.scan?.ranked ?? []).slice(0, 12).map((r) => ({
+      pool: r.pool.name,
+      netApr: r.netApr,
+      eligible: r.eligible,
+      blockedBy: r.blockedBy,
+      capital: r.capital,
+      halfWidth: r.halfWidth,
+      capture: r.capture.efficiency,
+      captureSource: r.capture.source,
+    })),
+    intents: report.intents.map((i) => ({ kind: i.kind, reason: i.reason })),
+  };
 
   if (report.halted) {
     console.log(`${when}  halted: ${report.halted}`);

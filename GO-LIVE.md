@@ -169,6 +169,44 @@ A testnet cannot offer that, because none of those things are real there.
 
 Do not move to the third until the second is clean.
 
+### The control console
+
+Manual override, for when the rules should not run: an opportunity the board
+has not priced, or a position that has become a risk to the treasury for a
+reason no price history contains.
+
+Set two more variables:
+
+| Variable | Value |
+|---|---|
+| `RESIDENT_CONTROL_WALLET` | the wallet allowed to issue orders. The owner. |
+| `RESIDENT_CONTROL_ORIGIN` | your site's origin, e.g. `https://resident-five.vercel.app` |
+
+Then, on the website, set `NEXT_PUBLIC_KEEPER_URL` to the keeper's public
+Railway URL and open `/desk/control`.
+
+**Authority is a signature, not a secret.** The console asks the wallet to sign
+a one-time challenge; the keeper accepts it only if it recovers to
+`RESIDENT_CONTROL_WALLET`. There is nothing to leak in a log or a screenshot,
+sessions die with the process, and revoking access is a wallet change rather
+than a redeploy. Leave `RESIDENT_CONTROL_WALLET` unset and the whole surface is
+off.
+
+What it can do:
+
+- **Exit** a position now, whatever the rules think.
+- **Sweep** a position's fees now.
+- **Enter** any pool on the board, including ones the gates refused. The width
+  is still the model's: choosing the pool is judgement, choosing how wide to sit
+  in it is arithmetic.
+- **Pause**, which stops new capital going out. Deliberately narrow: a paused
+  desk still retires, sweeps and re-centres what it already holds, because one
+  that stopped tending open positions would bleed while paused.
+
+Orders do not bypass anything. They become the same intents the rules emit,
+journalled before submission and reconciled after, and they take precedence: a
+position you have spoken for is not also acted on by a rule in the same tick.
+
 ### Check the replica count
 
 **Service → Settings → Deploy → Replicas** must be **1**. Two keepers sharing a
