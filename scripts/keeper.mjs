@@ -25,6 +25,18 @@ import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 
 import { FileJournal } from "../src/lib/keeper/journal-file.ts";
 import { checkJournalVolume, volumeFailure } from "../src/lib/keeper/volume.ts";
+import { readPosition } from "../src/lib/keeper/position-reader.ts";
+import { observePosition, toUnits } from "../src/lib/keeper/observer.ts";
+import {
+  readBalance,
+  readInventory,
+  readVaultLedger,
+  readVaultRoles,
+} from "../src/lib/keeper/vault-reader.ts";
+import { seriesFrom } from "../src/lib/keeper/marks.ts";
+import { poolId as poolIdOf } from "../src/lib/sim/v4.ts";
+import { bandWidth } from "../src/lib/sim/strategy.ts";
+import { keccak256, solidityPacked } from "ethers";
 import { DryRunSigner, SimulatingSigner } from "../src/lib/keeper/signer.ts";
 import { addressOf, localSigner } from "../src/lib/keeper/signer-local.ts";
 import { dryRunExecutor } from "../src/lib/keeper/executor-dryrun.ts";
@@ -32,7 +44,7 @@ import { makeV4Executor } from "../src/lib/keeper/executor-v4.ts";
 import { makeV4Reconciler } from "../src/lib/keeper/reconcile-v4.ts";
 import { jsonRpc, receiptWaiter } from "../src/lib/keeper/tx.ts";
 import { readV4Pool, rpcReader } from "../src/lib/sim/v4.ts";
-import { UNISWAP } from "../src/lib/chain.ts";
+import { TOKENS, UNISWAP } from "../src/lib/chain.ts";
 import { DEFAULT_TICK, tick } from "../src/lib/keeper/loop.ts";
 import { loadState } from "../src/lib/keeper/registry.ts";
 import { ledgerFrom, ledgerTotals } from "../src/lib/keeper/ledger.ts";
@@ -141,6 +153,17 @@ const reader = rpcReader(RPC);
 const VAULT = process.env.RESIDENT_VAULT;
 
 /**
+ * The asset every figure in the decision engine is denominated in.
+ *
+ * Idle capital, position values, fee income and the vault ledger all have to be
+ * in the same unit or the rules compare numbers that only look comparable.
+ */
+const QUOTE = {
+  address: process.env.RESIDENT_USDG ?? TOKENS.usdg,
+  decimals: Number(process.env.RESIDENT_USDG_DECIMALS ?? 6),
+};
+
+/**
  * With a vault address the desk builds the real thing: real pool state, real
  * tick maths, real calldata for the position manager, all of it journalled.
  * The signer is still a dry run, so none of it is sent. That is the run worth
@@ -235,19 +258,132 @@ const deps = {
     : async () => ({ found: null }),
   observe: async () => {
     const observations = await source.observe();
+    const pools = toScannedPools(observations);
+
+    // Without a vault there is nothing to read a balance or a position from,
+    // and inventing either would put the decision engine to work on fiction.
+    if (!VAULT) {
+      return {
+        pools,
+        positions: [],
+        current: null,
+        idleCapital: Number(process.env.RESIDENT_DRY_CAPITAL ?? 0),
+        inventory: [],
+        unbookedProfit: 0,
+        unbookedLoss: 0,
+        owed: 0,
+        bridges: {},
+        vault: { owner: "0x", keeper: "0x" },
+      };
+    }
+
+    const call = (to, data) => rpc("eth_call", [{ to, data }, "latest"]);
+    const byPool = new Map(pools.map((p) => [p.name, p]));
+    const observed = new Map(
+      observations.map((o) => [`${o.pool.token0.symbol}/${o.pool.token1.symbol}`, o]),
+    );
+
+    const [roles, ledger, records] = await Promise.all([
+      readVaultRoles(call, VAULT),
+      readVaultLedger(call, VAULT, QUOTE.decimals),
+      journal.read(),
+    ]);
+    const series = seriesFrom(records);
+    const state = await loadState(journal);
+
+    // Idle capital is the vault's own quote balance. Anything that arrives —
+    // a sweep landing, a fee claim, a deposit — is deployable on the next tick
+    // without anything else having to know where it came from.
+    const idleCapital = toUnits(
+      await readBalance(call, QUOTE.address, VAULT),
+      QUOTE.decimals,
+    );
+
+    const positions = [];
+    for (const position of state.positions) {
+      const board = byPool.get(position.pool);
+      const obs = observed.get(position.pool);
+      if (!board || !obs) continue;
+      try {
+        const read = await readPosition(
+          {
+            call,
+            positionManager: process.env.RESIDENT_V4_POSITION_MANAGER ?? UNISWAP.v4PositionManager,
+            stateView: process.env.RESIDENT_V4_STATE_VIEW ?? UNISWAP.v4StateView,
+            poolIdOf,
+            keccakPacked: (owner, lower, upper, salt) =>
+              keccak256(
+                solidityPacked(
+                  ["address", "int24", "int24", "bytes32"],
+                  [owner, lower, upper, salt],
+                ),
+              ),
+          },
+          position.handle,
+        );
+        const price = board.prices.at(-1) ?? 0;
+        positions.push(
+          observePosition({
+            position,
+            read,
+            price,
+            decimals0: obs.pool.token0.decimals,
+            decimals1: obs.pool.token1.decimals,
+            quoteIsToken1: obs.pool.stockIsToken1 !== true,
+            volume: board.volume,
+            liquidity: board.liquidity,
+            volatility: board.volatility,
+            captureEfficiency: DEFAULT_TICK.decide.scan.capture.unmeasured,
+            freshHalfWidth: bandWidth(board.volatility),
+            series: series.get(position.id),
+            now: Date.now(),
+            intervalMs: intervalSeconds * 1000,
+          }),
+        );
+      } catch (error) {
+        // One unreadable position must not blind the keeper to the rest of its
+        // book. It is reported and left out, so nothing decides about it.
+        console.error(
+          `  could not read position ${position.id} (${position.handle}): ${error.message}`,
+        );
+      }
+    }
+
+    // Loose tokens the desk holds, for the ladder rule. Priced off the same
+    // board the scanner ranks, so a token with no live pool is not inventory.
+    const inventory = await readInventory(
+      call,
+      VAULT,
+      [...observed.entries()]
+        .filter(([name]) => byPool.has(name))
+        .map(([name, o]) => ({
+          pool: name,
+          address: o.pool.stockIsToken1 ? o.pool.token1.address : o.pool.token0.address,
+          decimals: o.pool.stockIsToken1
+            ? o.pool.token1.decimals
+            : o.pool.token0.decimals,
+          price: byPool.get(name).prices.at(-1) ?? 0,
+        }))
+        .filter((t) => t.address && t.price > 0),
+    );
+
+    // Profit the desk has banked but the contract has not been told about yet.
+    // The ledger is the record of what has been booked; the difference is what
+    // the record intent exists to close.
+    const banked = state.sweptTotal;
+    const unbookedProfit = Math.max(0, banked - ledger.realized);
+
     return {
-      pools: toScannedPools(observations),
-      positions: [],
+      pools,
+      positions,
       current: null,
-      idleCapital: Number(process.env.RESIDENT_DRY_CAPITAL ?? 0),
-      // A running desk reads the vault's token balances here. Empty means the
-      // desk holds nothing loose, not that laddering was considered and refused.
-      inventory: [],
-      unbookedProfit: 0,
+      idleCapital,
+      inventory,
+      unbookedProfit,
       unbookedLoss: 0,
-      owed: 0,
+      owed: ledger.owed,
       bridges: {},
-      vault: { owner: "0x", keeper: "0x" },
+      vault: { owner: roles.owner, keeper: roles.keeper },
     };
   },
 };

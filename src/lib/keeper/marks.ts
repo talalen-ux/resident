@@ -26,6 +26,8 @@ export type Mark = {
   value: number;
   feesUnclaimed: number;
   price: number;
+  /** Net rate at the position's bounds. Absent on marks written before it. */
+  rate?: number;
 };
 
 /** Marks for one position, oldest first, plus the fees swept out of it. */
@@ -57,6 +59,7 @@ export function seriesFrom(records: JournalRecord[]): Map<string, PositionSeries
         value: record.value,
         feesUnclaimed: record.feesUnclaimed,
         price: record.price,
+        rate: record.rate,
       });
     } else if (record.kind === "intent" && record.intent.kind === "sweep") {
       sweepIntents.set(record.intent.id, record.intent.positionId);

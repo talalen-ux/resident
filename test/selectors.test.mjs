@@ -11,11 +11,11 @@ import { Interface } from "ethers";
 
 import { compile } from "./harness.mjs";
 
-test("rpc-adapter selectors match the compiled ResidentVault ABI", () => {
+test("the vault selector table matches the compiled ResidentVault ABI", () => {
   const { artifacts } = compile();
   const iface = new Interface(artifacts.ResidentVault.abi);
 
-  const source = readFileSync("src/lib/desk/rpc-adapter.ts", "utf8");
+  const source = readFileSync("src/lib/desk/selectors.ts", "utf8");
   const block = source.match(/export const SELECTORS = \{([\s\S]*?)\} as const;/);
   assert.ok(block, "could not find the SELECTORS table");
 

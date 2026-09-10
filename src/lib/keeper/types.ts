@@ -138,6 +138,14 @@ export type JournalRecord =
       feesUnclaimed: number;
       /** Pool price at the mark, in quote units. */
       price: number;
+      /**
+       * Net rate at the position's own bounds, per interval.
+       *
+       * Optional because the journal is append-only and durable: records
+       * written before this field existed must still replay. A mark without it
+       * simply does not contribute to the retire run.
+       */
+      rate?: number;
     }
   | { at: number; kind: "heartbeat"; ok: boolean; note: string }
   /**
