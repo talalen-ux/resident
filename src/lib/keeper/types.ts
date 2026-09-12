@@ -109,7 +109,26 @@ export type Intent =
       loss: number;
       reason: string;
     }
-  | { id: string; kind: "distribute"; reason: string };
+  | { id: string; kind: "distribute"; reason: string }
+  /**
+   * Move the launch's own trading fees into the vault.
+   *
+   * Two calls behind one intent, because they are only useful together: a
+   * sweep that credits the escrow and a claim that pays it out. Splitting them
+   * into separate intents would let a crash leave fees sitting in an escrow
+   * with nothing in the journal saying to go and get them.
+   */
+  | {
+      id: string;
+      kind: "claim";
+      /** The launch's pool on the meme hook. */
+      poolId: string;
+      /** Asset being claimed. The vault's payout asset in practice. */
+      token: string;
+      /** Quote units the desk expects, for the journal. An upper bound. */
+      expected: number;
+      reason: string;
+    };
 
 export type IntentKind = Intent["kind"];
 

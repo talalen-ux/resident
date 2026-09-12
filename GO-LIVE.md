@@ -169,6 +169,38 @@ A testnet cannot offer that, because none of those things are real there.
 
 Do not move to the third until the second is clean.
 
+### The launch's own fees
+
+Once $RES is launched on Pons with the vault as its creator fee recipient, two
+more variables turn the inflow on:
+
+| Variable | Value |
+|---|---|
+| `RESIDENT_PONS_HOOK` | the PonsV2MemeHook address |
+| `RESIDENT_RES_POOL_ID` | the launch's v4 pool id (bytes32) |
+
+The escrow is **not** configured. It is read off the hook, which exposes it as
+an immutable public, because an address constant for something discoverable is
+an address constant that can be wrong.
+
+Allowlist both venues from the owner wallet, exactly as with Uniswap:
+
+```bash
+npm run owner -- set-venue <PONS_HOOK> true
+npm run owner -- set-venue <FEE_ESCROW> true
+```
+
+Each tick the keeper reads what the launch has accrued and claims it once it
+clears the same gas floor a sweep does. The claim is two calls: a sweep that
+credits the escrow, then a claim that pays it out to the vault. The sweep
+reverts for anyone but Pons's own sweep operator whenever it would need an
+internal swap, and that revert is correct rather than a failure — those fees are
+theirs to convert, and the claim still takes whatever is already credited.
+
+The claimed amount lands in the vault as ordinary balance, which the next tick
+deploys like any other idle capital. Nothing downstream knows or cares that it
+came from the launch.
+
 ### The control console
 
 Manual override, for when the rules should not run: an opportunity the board

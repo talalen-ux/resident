@@ -157,6 +157,21 @@ export type DecideInput = {
   /** Distribute once owed reaches this. */
   distributeAt: number;
   /**
+   * The launch's own fees, waiting to be claimed.
+   *
+   * Absent when no launch is configured, which is not the same as zero: a desk
+   * with no launch should say nothing about claiming rather than report that
+   * there is nothing to claim.
+   */
+  launchFees?: {
+    poolId: string;
+    token: string;
+    /** Already claimable out of the escrow, in quote units. */
+    claimable: number;
+    /** Still on the hook, which a sweep would move. An upper bound. */
+    pending: number;
+  };
+  /**
    * Orders an operator has issued since the last tick.
    *
    * They take precedence over every rule below. An operator who has closed a
@@ -527,6 +542,37 @@ export function decide(
       binCount: target.binCount,
       reason: `${target.reason}; ${describeShape(target)}`,
     });
+  }
+
+  // 6b. Claim the launch's own fees.
+  //
+  // Before crossing chains and after deploying, because it is an inflow rather
+  // than an allocation: what it produces is capital the NEXT tick deploys. Made
+  // to clear the same gas floor a sweep does, since it is the same shape of
+  // decision — a claim worth less than the gas to make it is a loss.
+  if (input.launchFees) {
+    const { claimable, pending, poolId, token } = input.launchFees;
+    const total = claimable + pending;
+    const floor = config.costs.sweepGas * config.sweep.gasMargin;
+    if (total <= 0) {
+      passed.push({ subject: "claim", reason: "the launch has accrued nothing" });
+    } else if (total < floor) {
+      passed.push({
+        subject: "claim",
+        reason: `${total.toFixed(2)} does not clear ${config.sweep.gasMargin}x gas (${floor.toFixed(2)})`,
+      });
+    } else {
+      intents.push({
+        id: intentId("claim", now),
+        kind: "claim",
+        poolId,
+        token,
+        expected: total,
+        reason:
+          `${claimable.toFixed(2)} claimable` +
+          (pending > 0 ? ` and ${pending.toFixed(2)} pending on the hook` : ""),
+      });
+    }
   }
 
   // 7. Cross chains.

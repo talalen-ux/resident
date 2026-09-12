@@ -37,6 +37,13 @@ export type Observation = {
   manual?: ManualOrder[];
   /** Commit no new capital. Open positions are still tended. */
   paused?: boolean;
+  /** The launch's own fees, when a launch is configured. */
+  launchFees?: {
+    poolId: string;
+    token: string;
+    claimable: number;
+    pending: number;
+  };
   /** Where the capital sits now, or null when nothing is deployed. */
   current: Venue | null;
   /** Uncommitted quote in the vault. */
@@ -189,6 +196,7 @@ export async function tick(
       observations: observation.positions,
       manual: observation.manual,
       paused: observation.paused,
+      launchFees: observation.launchFees,
       idleCapital: observation.idleCapital,
       inventory: observation.inventory,
       unbookedProfit: observation.unbookedProfit,

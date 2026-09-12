@@ -34,6 +34,7 @@ import {
   readVaultRoles,
 } from "../src/lib/keeper/vault-reader.ts";
 import { seriesFrom } from "../src/lib/keeper/marks.ts";
+import { claimable as claimableOf, escrowOf, pending as pendingOf } from "../src/lib/keeper/pons.ts";
 import { poolId as poolIdOf } from "../src/lib/sim/v4.ts";
 import { bandWidth } from "../src/lib/sim/strategy.ts";
 import { keccak256, solidityPacked, verifyMessage } from "ethers";
@@ -185,6 +186,8 @@ const execute = VAULT
       vault: VAULT,
       positionManager: process.env.RESIDENT_V4_POSITION_MANAGER ?? UNISWAP.v4PositionManager,
       permit2: process.env.RESIDENT_PERMIT2 ?? UNISWAP.permit2,
+      ponsHook: process.env.RESIDENT_PONS_HOOK,
+      call: (to, data) => rpc("eth_call", [{ to, data }, "latest"]),
       poolFor: (name) => {
         const w = byName.get(name);
         return w ? { key: w.key, state: null } : null;
@@ -374,6 +377,31 @@ const deps = {
       }),
     };
 
+    // The launch's own fees. Absent rather than zero when no launch is
+    // configured: a desk with no launch should say nothing about claiming.
+    let launchFees;
+    const hook = process.env.RESIDENT_PONS_HOOK;
+    const launchPool = process.env.RESIDENT_RES_POOL_ID;
+    if (hook && launchPool) {
+      try {
+        const escrow = await escrowOf(call, hook);
+        const [credited, onHook] = await Promise.all([
+          claimableOf(call, escrow, VAULT, QUOTE.address),
+          pendingOf(call, hook, launchPool, QUOTE.address),
+        ]);
+        launchFees = {
+          poolId: launchPool,
+          token: QUOTE.address,
+          claimable: toUnits(credited, QUOTE.decimals),
+          pending: toUnits(onHook, QUOTE.decimals),
+        };
+      } catch (error) {
+        // A launch that cannot be read is reported, not guessed at. Reporting
+        // zero here would look like "no fees" and quietly stop the inflow.
+        console.error(`  could not read launch fees: ${error.message}`);
+      }
+    }
+
     // Loose tokens the desk holds, for the ladder rule. Priced off the same
     // board the scanner ranks, so a token with no live pool is not inventory.
     const inventory = await readInventory(
@@ -406,6 +434,7 @@ const deps = {
       // loop does. An order taken twice is a position closed twice.
       manual: control?.drain() ?? [],
       paused: control?.paused ?? false,
+      launchFees,
       idleCapital,
       inventory,
       unbookedProfit,

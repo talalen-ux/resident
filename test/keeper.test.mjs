@@ -692,3 +692,42 @@ test("pausing stops new capital going out but keeps tending what is open", () =>
   // is the opposite of what the operator reached for the button to do.
   assert.ok(paused.intents.some((i) => i.kind === "close"));
 });
+
+test("the launch's fees are claimed once they clear the gas floor", () => {
+  const decision = decide(input({
+    launchFees: { poolId: "0xabc", token: "0xusdg", claimable: 400, pending: 100 },
+  }));
+  const claim = decision.intents.find((i) => i.kind === "claim");
+  assert.ok(claim, "a claim worth well over gas should be made");
+  assert.equal(claim.poolId, "0xabc");
+  assert.equal(claim.token, "0xusdg");
+  // Both buckets, because a sweep pays them together and either alone
+  // understates what the call is worth.
+  assert.equal(claim.expected, 500);
+  assert.match(claim.reason, /400.00 claimable/);
+  assert.match(claim.reason, /100.00 pending/);
+});
+
+test("a claim worth less than the gas to make it is not made", () => {
+  const decision = decide(input({
+    launchFees: { poolId: "0xabc", token: "0xusdg", claimable: 0.5, pending: 0 },
+  }));
+  assert.equal(decision.intents.filter((i) => i.kind === "claim").length, 0);
+  assert.ok(decision.passed.some((p) => /does not clear/.test(p.reason)));
+});
+
+test("a desk with no launch says nothing about claiming", () => {
+  const decision = decide(input());
+  assert.equal(decision.intents.filter((i) => i.kind === "claim").length, 0);
+  // Absent is not the same as zero. A desk with no launch reporting "nothing
+  // to claim" would read as a launch that has earned nothing.
+  assert.equal(decision.passed.filter((p) => p.subject === "claim").length, 0);
+});
+
+test("a launch that has accrued nothing is explained rather than silent", () => {
+  const decision = decide(input({
+    launchFees: { poolId: "0xabc", token: "0xusdg", claimable: 0, pending: 0 },
+  }));
+  assert.equal(decision.intents.filter((i) => i.kind === "claim").length, 0);
+  assert.ok(decision.passed.some((p) => /accrued nothing/.test(p.reason)));
+});

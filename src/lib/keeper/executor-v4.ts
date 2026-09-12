@@ -20,6 +20,8 @@
 import { Interface } from "ethers";
 
 import { UNISWAP } from "../chain.ts";
+import { claimCall, escrowOf, sweepCall, verifyClaim } from "./pons.ts";
+import { POSITION_SELECTORS } from "./position-reader.ts";
 import type { PoolKey } from "../sim/v4.ts";
 import type { PoolState } from "../sim/v3.ts";
 import {
@@ -80,6 +82,15 @@ export type V4Context = {
   deadlineSeconds?: number;
   /** Slippage allowed on a mint, as a fraction. */
   slippage?: number;
+  /**
+   * The Pons meme hook holding the launch's fees.
+   *
+   * Optional: a desk with no launch of its own still runs, it simply never
+   * claims. The escrow is read off this hook rather than configured.
+   */
+  ponsHook?: string;
+  /** Raw eth_call, for the reads a claim has to make. */
+  call(to: string, data: string): Promise<string>;
 };
 
 export type RawLog = { address: string; topics: string[]; data: string };
@@ -231,6 +242,19 @@ const withSlippage = (amount: bigint, fraction: number) =>
   amount + (amount * BigInt(Math.round(fraction * 10_000))) / 10_000n;
 
 /** Wrap a venue call so it goes through the vault rather than around it. */
+/** ERC20 balance in raw units, for checking a claim actually landed. */
+async function balanceOfRaw(
+  call: (to: string, data: string) => Promise<string>,
+  token: string,
+  holder: string,
+): Promise<bigint> {
+  const data =
+    POSITION_SELECTORS.balanceOf +
+    holder.replace(/^0x/, "").toLowerCase().padStart(64, "0");
+  const result = await call(token, data);
+  return !result || result === "0x" ? 0n : BigInt(result);
+}
+
 export function viaVault(
   vault: string,
   venue: string,
@@ -541,6 +565,46 @@ export function makeV4Executor(ctx: V4Context) {
         description: "book realised profit",
       });
       return { txHash: hash };
+    }
+
+    if (intent.kind === "claim") {
+      if (!ctx.ponsHook) {
+        throw new Error("claim: no Pons hook configured, so there is nothing to sweep");
+      }
+      const call = (to: string, data: string) => ctx.call(to, data);
+      const escrow = await escrowOf(call, ctx.ponsHook);
+      const before = await balanceOfRaw(call, intent.token, ctx.vault);
+
+      // The sweep moves fees from the hook into the escrow. It reverts for
+      // anyone but Pons's own operator whenever an internal swap is needed, and
+      // that revert is correct rather than a failure of ours: those fees are
+      // theirs to convert. The claim still runs, for whatever is already
+      // credited.
+      try {
+        const sweep = sweepCall(ctx.ponsHook, intent.poolId);
+        await send(viaVault(ctx.vault, sweep.to, sweep.data, sweep.description));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (error instanceof Unconfirmed) throw error;
+        console.warn(`  sweep into escrow did not land (${message}); claiming what is credited`);
+      }
+
+      const claim = claimCall(escrow, intent.token);
+      const { hash } = await send(
+        viaVault(ctx.vault, claim.to, claim.data, claim.description),
+      );
+
+      // The escrow implementation is not published, so that claimToken pays
+      // msg.sender is an inference from its interface. Check it rather than
+      // journal income the desk may not hold.
+      const { ok, received } = await verifyClaim(call, intent.token, ctx.vault, before);
+      if (!ok && !ctx.signer.dryRun) {
+        throw new Error(
+          `claim landed as ${hash} but the vault's balance did not rise. ` +
+            "The escrow may not pay the caller; do not book this as income.",
+        );
+      }
+      return { txHash: hash, amount: Number(received) };
     }
 
     throw new Error(`${intent.kind}: not implemented on this venue`);
