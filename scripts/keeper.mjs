@@ -41,6 +41,7 @@ import { keccak256, solidityPacked, verifyMessage } from "ethers";
 import { createServer } from "node:http";
 import { randomBytes } from "node:crypto";
 import { BadOrder, Control, parseOrder } from "../src/lib/keeper/control.ts";
+import { checkConfig, configFailure } from "../src/lib/keeper/preflight-config.ts";
 import { DryRunSigner, SimulatingSigner } from "../src/lib/keeper/signer.ts";
 import { addressOf, localSigner } from "../src/lib/keeper/signer-local.ts";
 import { dryRunExecutor } from "../src/lib/keeper/executor-dryrun.ts";
@@ -48,7 +49,7 @@ import { makeV4Executor } from "../src/lib/keeper/executor-v4.ts";
 import { makeV4Reconciler } from "../src/lib/keeper/reconcile-v4.ts";
 import { jsonRpc, receiptWaiter } from "../src/lib/keeper/tx.ts";
 import { readV4Pool, rpcReader } from "../src/lib/sim/v4.ts";
-import { TOKENS, UNISWAP } from "../src/lib/chain.ts";
+import { MAINNET, TOKENS, UNISWAP } from "../src/lib/chain.ts";
 import { DEFAULT_TICK, tick } from "../src/lib/keeper/loop.ts";
 import { loadState } from "../src/lib/keeper/registry.ts";
 import { ledgerFrom, ledgerTotals } from "../src/lib/keeper/ledger.ts";
@@ -101,6 +102,48 @@ if (process.env.RESIDENT_REQUIRE_VOLUME === "1") {
 const intervalSeconds = Number(arg("interval", "60"));
 const once = process.argv.includes("--once");
 
+// Configuration the preflight below reads. Resolved here rather than further
+// down because refusing a bad configuration should happen before the keeper
+// spends a round of eth_getLogs discovering pools it will never trade.
+const KEY = process.env.RESIDENT_KEEPER_KEY;
+const KEEPER_ADDRESS = process.env.RESIDENT_KEEPER_ADDRESS;
+const VAULT = process.env.RESIDENT_VAULT;
+
+/**
+ * Refuse an incoherent configuration before the first tick.
+ *
+ * The chain id is read first so the mainnet check is against what the node
+ * actually reports rather than against a guess from the RPC URL. A node that
+ * will not answer is not fatal here — the check simply has nothing to say about
+ * which chain this is, and the per-transaction guard still holds.
+ */
+let reportedChainId;
+try {
+  reportedChainId = Number(await rpc("eth_chainId", []));
+} catch {
+  reportedChainId = undefined;
+}
+
+const configVerdict = checkConfig({
+  vault: VAULT,
+  key: KEY,
+  keeperAddress: KEEPER_ADDRESS,
+  rpcUrl: RPC,
+  allowMainnet: process.env.RESIDENT_ALLOW_MAINNET === "1",
+  chainId: reportedChainId,
+  mainnetChainId: MAINNET.chainId,
+  controlWallet: process.env.RESIDENT_CONTROL_WALLET,
+  ponsHook: process.env.RESIDENT_PONS_HOOK,
+  ponsPoolId: process.env.RESIDENT_RES_POOL_ID,
+});
+
+if (!configVerdict.ok) {
+  console.error(`\n${configFailure(configVerdict)}`);
+  process.exit(1);
+}
+
+console.log(`  mode      ${configVerdict.mode}`);
+
 const CACHE = ".pools.json";
 let watched;
 if (existsSync(CACHE)) {
@@ -134,8 +177,6 @@ const rpc = jsonRpc(RPC);
  * The middle one needs the keeper's address and not its key. Take the address
  * from `npm run newkey` and leave the key wherever it is until it is clean.
  */
-const KEY = process.env.RESIDENT_KEEPER_KEY;
-const KEEPER_ADDRESS = process.env.RESIDENT_KEEPER_ADDRESS;
 const signer = KEY
   ? localSigner({
       rpc,
@@ -153,8 +194,6 @@ const signer = KEY
       new SimulatingSigner(rpc, KEEPER_ADDRESS)
     : new DryRunSigner();
 const reader = rpcReader(RPC);
-
-const VAULT = process.env.RESIDENT_VAULT;
 
 /**
  * The asset every figure in the decision engine is denominated in.
@@ -570,7 +609,11 @@ if (KEY) {
       "            owner. The loop checks both against the chain every tick.",
   );
 }
+console.log(`  chain     ${reportedChainId ?? "unread"}`);
 console.log(`  interval  ${intervalSeconds}s${once ? " (once)" : ""}`);
+for (const note of configVerdict.notes) {
+  console.log(`\n  note: ${note}`);
+}
 console.log("");
 
 async function runOnce() {

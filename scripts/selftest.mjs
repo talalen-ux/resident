@@ -32,6 +32,7 @@ const modules = [
   "../src/lib/keeper/ledger.ts",
   "../src/lib/keeper/decide.ts",
   "../src/lib/keeper/control.ts",
+  "../src/lib/keeper/preflight-config.ts",
   "../src/lib/keeper/pons.ts",
   "../src/lib/keeper/holders.ts",
   "../src/lib/keeper/observer.ts",
