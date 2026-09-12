@@ -20,6 +20,7 @@
  */
 
 import type { JournalRecord } from "./types.ts";
+import type { CaptureSample } from "../sim/capture.ts";
 
 export type Mark = {
   at: number;
@@ -28,6 +29,8 @@ export type Mark = {
   price: number;
   /** Net rate at the position's bounds. Absent on marks written before it. */
   rate?: number;
+  /** Model fee income for the interval, for the capture calibration. */
+  feeEstimate?: number;
 };
 
 /** Marks for one position, oldest first, plus the fees swept out of it. */
@@ -60,6 +63,7 @@ export function seriesFrom(records: JournalRecord[]): Map<string, PositionSeries
         feesUnclaimed: record.feesUnclaimed,
         price: record.price,
         rate: record.rate,
+        feeEstimate: record.feeEstimate,
       });
     } else if (record.kind === "intent" && record.intent.kind === "sweep") {
       sweepIntents.set(record.intent.id, record.intent.positionId);
@@ -149,4 +153,48 @@ export function netOverWindow(
  */
 export function netReturn(net: NetOverWindow): number | null {
   return net.openingValue > 0 ? net.net / net.openingValue : null;
+}
+
+/**
+ * Capture samples, derived from the journal.
+ *
+ * One sample per sweep: what the model predicted the position would earn in
+ * fees across the window since the last sweep, against what the sweep actually
+ * returned. Nothing else in the system can produce this — the estimate lives in
+ * the marks and the outcome in the settlement, and only the journal has both.
+ *
+ * Without it the scanner prices every pool at the assumed 0.5 forever, and on a
+ * realistic board that assumption makes every pool net-negative, so the desk
+ * never opens a position and therefore never measures anything. That is a
+ * deadlock, not a conservative default.
+ */
+export function samplesFrom(
+  records: JournalRecord[],
+  poolOf: (positionId: string) => string | undefined,
+): CaptureSample[] {
+  const series = seriesFrom(records);
+  const samples: CaptureSample[] = [];
+
+  for (const [positionId, entry] of series) {
+    const pool = poolOf(positionId);
+    if (!pool) continue;
+
+    let windowStart = 0;
+    for (const sweep of entry.sweeps) {
+      // Marks inside this sweep's window, which is everything since the last
+      // one. A sweep collects what accrued over exactly that span.
+      const estimated = entry.marks
+        .filter((mark) => mark.at > windowStart && mark.at <= sweep.at)
+        .reduce((sum, mark) => sum + (mark.feeEstimate ?? 0), 0);
+      windowStart = sweep.at;
+
+      // A window the model said would earn nothing cannot produce a ratio.
+      // capture.ts drops these too; dropping them here keeps the journal and
+      // the calibration agreeing about what a sample is.
+      if (!(estimated > 0)) continue;
+      samples.push({ pool, estimated, realized: sweep.amount, at: sweep.at });
+    }
+  }
+
+  return samples;
 }

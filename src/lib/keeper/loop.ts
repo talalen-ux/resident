@@ -14,6 +14,8 @@
 
 import type { Scan } from "../sim/scanner.ts";
 import { scan as runScan, type ScannedPool } from "../sim/scanner.ts";
+import { calibrate } from "../sim/capture.ts";
+import { samplesFrom } from "./marks.ts";
 import type { BridgeCost, Venue } from "../sim/allocate.ts";
 import {
   type Journal,
@@ -165,12 +167,24 @@ export async function tick(
     }
   }
 
+  // Capture, measured from this desk's own sweeps rather than assumed. Pools
+  // with fewer than minSamples still price at the assumption; the point is that
+  // the ones the desk has actually traded stop doing so.
+  const calibration = calibrate(
+    samplesFrom(await journal.read(), (positionId) =>
+      state.positions.find((p) => p.id === positionId)?.pool,
+    ),
+    at,
+    config.decide.scan.capture,
+  );
+
   const scanned = runScan(
     observation.pools,
     observation.current,
     observation.idleCapital,
     observation.bridges,
     config.decide.scan,
+    calibration,
   );
   report.scan = scanned;
 
@@ -186,6 +200,8 @@ export async function tick(
       value: position.value,
       feesUnclaimed: position.feesUnclaimed,
       price: position.price,
+      rate: position.currentRate,
+      feeEstimate: position.feeEstimate,
     });
   }
 

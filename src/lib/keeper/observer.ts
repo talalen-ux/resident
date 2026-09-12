@@ -33,7 +33,7 @@ export function toUnits(raw: bigint, decimals: number): number {
  * centred band would earn is how a desk holds a position that stopped working
  * days ago, so out of range is zero rather than an estimate.
  */
-export function currentRate(inputs: {
+export function rateAndFees(inputs: {
   price: number;
   lower: number;
   upper: number;
@@ -46,21 +46,29 @@ export function currentRate(inputs: {
   feePips: number;
   volatility: number;
   captureEfficiency: number;
-}): number {
+}): { rate: number; feeIncome: number } {
   const { price, lower, upper, value } = inputs;
-  if (!(value > 0)) return 0;
-  if (price < lower || price > upper) return 0;
+  if (!(value > 0)) return { rate: 0, feeIncome: 0 };
+  if (price < lower || price > upper) return { rate: 0, feeIncome: 0 };
 
   // The half-width the bleed is charged against is the distance to the NEAR
   // edge. A position sitting against one bound is one move from earning
   // nothing, and averaging the two bounds would hide exactly that.
   const halfWidth = Math.min(price - lower, upper - price) / price;
-  if (!(halfWidth > 0)) return 0;
+  if (!(halfWidth > 0)) return { rate: 0, feeIncome: 0 };
 
   const share = concentratedShare(value, halfWidth, inputs.liquidity);
   const feeIncome =
     inputs.volume * (inputs.feePips / 1_000_000) * share * inputs.captureEfficiency;
-  return feeIncome / value - expectedBleedRate(halfWidth, inputs.volatility);
+  return {
+    rate: feeIncome / value - expectedBleedRate(halfWidth, inputs.volatility),
+    feeIncome,
+  };
+}
+
+/** Just the rate, for callers that do not need the fee leg. */
+export function currentRate(inputs: Parameters<typeof rateAndFees>[0]): number {
+  return rateAndFees(inputs).rate;
 }
 
 /**
@@ -121,7 +129,7 @@ export function observePosition(inputs: ObserveInputs): PositionObservation {
   const lower = priceAtTick(read.tickLower, decimals0, decimals1);
   const upper = priceAtTick(read.tickUpper, decimals0, decimals1);
 
-  const rate = currentRate({
+  const { rate, feeIncome } = rateAndFees({
     price,
     lower,
     upper,
@@ -137,6 +145,11 @@ export function observePosition(inputs: ObserveInputs): PositionObservation {
   return {
     positionId: inputs.position.id,
     currentRate: rate,
+    // What the model says this interval earns in fees, before the bleed. The
+    // capture calibration compares the sum of these against what a sweep
+    // actually returned, which is the only way the assumed 0.5 is ever
+    // replaced by a measurement.
+    feeEstimate: feeIncome,
     feesUnclaimed,
     value,
     price,

@@ -13,9 +13,10 @@ import {
   replay,
   submit,
 } from "../src/lib/keeper/registry.ts";
+import { samplesFrom } from "../src/lib/keeper/marks.ts";
 import { FileJournal } from "../src/lib/keeper/journal-file.ts";
 import { DEFAULT_SWEEP, shouldRetire, shouldSweep } from "../src/lib/keeper/sweep.ts";
-import { decide } from "../src/lib/keeper/decide.ts";
+import { DEFAULT_DECIDE, decide } from "../src/lib/keeper/decide.ts";
 import { DEFAULT_TICK, tick } from "../src/lib/keeper/loop.ts";
 import { netOverWindow, netReturn, seriesFrom } from "../src/lib/keeper/marks.ts";
 import { DryRunSigner, checkSigner } from "../src/lib/keeper/signer.ts";
@@ -27,6 +28,17 @@ const TRENDING = [100, 92, 84, 77, 70, 64, 58, 52, 47, 42, 38, 34];
 const POOL = {
   name: "AMC/USDG", chain: "robinhood", kind: "band",
   volume: 60_000, volatility: 0.003, liquidity: 120_000, feePips: 3000,
+  prices: RANGING,
+};
+
+/**
+ * A pool that holds its band and still does not pay: low volume against deep
+ * liquidity. This is the ordinary state of a board before capture has been
+ * measured, and it is what the probe rule exists for.
+ */
+const RANGES_BUT_POOR = {
+  name: "QUIET/USDG", chain: "robinhood", kind: "band",
+  volume: 20, volatility: 0.003, liquidity: 5_000_000, feePips: 3000,
   prices: RANGING,
 };
 
@@ -730,4 +742,131 @@ test("a launch that has accrued nothing is explained rather than silent", () => 
   }));
   assert.equal(decision.intents.filter((i) => i.kind === "claim").length, 0);
   assert.ok(decision.passed.some((p) => /accrued nothing/.test(p.reason)));
+});
+
+test("a claimed launch fee is banked income, so holders accrue against it", () => {
+  const claim = {
+    id: "c1", kind: "claim", poolId: "0xabc", token: "0xusdg",
+    expected: 14_000, reason: "",
+  };
+  const state = replay([
+    { at: 1, kind: "intent", intent: claim },
+    { at: 2, kind: "settled", intentId: "c1", ok: true, amount: 14_000 },
+  ]);
+  // Without this the launch's fees — the largest income the desk has — never
+  // reach the contract as profit and the 15% never accrues against them.
+  assert.equal(state.sweptTotal, 14_000);
+});
+
+test("a claim that failed banks nothing", () => {
+  const claim = {
+    id: "c1", kind: "claim", poolId: "0xabc", token: "0xusdg",
+    expected: 14_000, reason: "",
+  };
+  const state = replay([
+    { at: 1, kind: "intent", intent: claim },
+    { at: 2, kind: "settled", intentId: "c1", ok: false, error: "reverted" },
+  ]);
+  assert.equal(state.sweptTotal, 0);
+});
+
+test("the desk probes an unmeasured pool rather than deadlocking on its own assumption", () => {
+  // The board is eligible but nothing clears the entry test, which is the
+  // normal state before anything has been measured. Without a probe the desk
+  // never opens, never sweeps, never measures, and never opens: a deadlock
+  // dressed as caution.
+  const board = scan([RANGES_BUT_POOR], null, 50_000, {});
+  assert.ok(
+    board.ranked.every((r) => !r.enter),
+    "fixture must be a board where nothing clears the entry test",
+  );
+  const decision = decide(input({ idleCapital: 50_000, scan: board }));
+  const opens = decision.intents.filter((i) => i.kind === "open");
+  const probe = opens.find((o) => o.probe);
+  assert.ok(probe, "an unmeasured board should be probed");
+  assert.equal(probe.capital, DEFAULT_DECIDE.minOpen);
+  assert.match(probe.reason, /assumed, not measured/);
+});
+
+test("the probe budget is bounded and counted", () => {
+  const probes = Array.from({ length: DEFAULT_DECIDE.maxProbes }, (_, i) =>
+    held({ id: `p${i}`, pool: `POOL${i}/USDG`, probe: true }),
+  );
+  const decision = decide(input({
+    idleCapital: 50_000,
+    scan: scan([RANGES_BUT_POOR], null, 50_000, {}),
+    state: { positions: probes, inFlight: [], sweptTotal: 0, lastRecordAt: 0, lastHealthyAt: 0 },
+    observations: probes.map((p) => observed({ positionId: p.id })),
+  }));
+  assert.equal(decision.intents.filter((i) => i.probe).length, 0);
+  assert.ok(decision.passed.some((p) => /the limit is/.test(p.reason)));
+});
+
+test("probing can be switched off entirely", () => {
+  const decision = decide(
+    input({ idleCapital: 50_000, scan: scan([RANGES_BUT_POOR], null, 50_000, {}) }),
+    { ...DEFAULT_DECIDE, maxProbes: 0 },
+  );
+  assert.equal(decision.intents.filter((i) => i.probe).length, 0);
+});
+
+test("a paused desk does not probe either", () => {
+  const decision = decide(input({
+    idleCapital: 50_000, paused: true,
+    scan: scan([RANGES_BUT_POOR], null, 50_000, {}),
+  }));
+  assert.equal(decision.intents.filter((i) => i.probe).length, 0);
+});
+
+test("capture samples are derived from marks and the sweep that followed them", () => {
+  const sweepIntent = { id: "s1", kind: "sweep", positionId: "p1", reason: "" };
+  const samples = samplesFrom(
+    [
+      { at: 10, kind: "mark", positionId: "p1", value: 1, feesUnclaimed: 0, price: 1, feeEstimate: 40 },
+      { at: 20, kind: "mark", positionId: "p1", value: 1, feesUnclaimed: 0, price: 1, feeEstimate: 60 },
+      { at: 25, kind: "intent", intent: sweepIntent },
+      { at: 30, kind: "settled", intentId: "s1", ok: true, amount: 70 },
+    ],
+    () => "AI/USDG",
+  );
+  assert.equal(samples.length, 1);
+  // The model said 100 across the window, 70 arrived: capture 0.7, which is
+  // the number the assumed 0.5 exists to be replaced by.
+  assert.equal(samples[0].estimated, 100);
+  assert.equal(samples[0].realized, 70);
+  assert.equal(samples[0].pool, "AI/USDG");
+});
+
+test("a window the model said would earn nothing is not a sample", () => {
+  const sweepIntent = { id: "s1", kind: "sweep", positionId: "p1", reason: "" };
+  const samples = samplesFrom(
+    [
+      { at: 10, kind: "mark", positionId: "p1", value: 1, feesUnclaimed: 0, price: 1, feeEstimate: 0 },
+      { at: 25, kind: "intent", intent: sweepIntent },
+      { at: 30, kind: "settled", intentId: "s1", ok: true, amount: 5 },
+    ],
+    () => "AI/USDG",
+  );
+  // A ratio against zero is not a measurement, it is a division.
+  assert.deepEqual(samples, []);
+});
+
+test("only marks inside a sweep's own window count towards it", () => {
+  const first = { id: "s1", kind: "sweep", positionId: "p1", reason: "" };
+  const second = { id: "s2", kind: "sweep", positionId: "p1", reason: "" };
+  const samples = samplesFrom(
+    [
+      { at: 10, kind: "mark", positionId: "p1", value: 1, feesUnclaimed: 0, price: 1, feeEstimate: 40 },
+      { at: 15, kind: "intent", intent: first },
+      { at: 20, kind: "settled", intentId: "s1", ok: true, amount: 30 },
+      { at: 30, kind: "mark", positionId: "p1", value: 1, feesUnclaimed: 0, price: 1, feeEstimate: 80 },
+      { at: 35, kind: "intent", intent: second },
+      { at: 40, kind: "settled", intentId: "s2", ok: true, amount: 60 },
+    ],
+    () => "AI/USDG",
+  );
+  assert.equal(samples.length, 2);
+  assert.equal(samples[0].estimated, 40);
+  // The second window must not re-count the first window's marks.
+  assert.equal(samples[1].estimated, 80);
 });

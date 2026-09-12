@@ -106,6 +106,7 @@ export function replay(records: JournalRecord[]): KeeperState {
         openedAt: record.at,
         feesSwept: 0,
         lastSweptAt: record.at,
+        probe: intent.probe,
       });
     } else if (intent.kind === "close") {
       positions.delete(intent.positionId);
@@ -128,6 +129,16 @@ export function replay(records: JournalRecord[]): KeeperState {
         position.feesSwept += amount;
         position.lastSweptAt = record.at;
       }
+    } else if (intent.kind === "claim") {
+      // Income banked from the launch's own fees, not from a position.
+      //
+      // It counts here for the same reason a sweep does: sweptTotal is what
+      // the desk has actually realised, and the record intent books the
+      // difference between that and the vault's ledger. Leaving claims out
+      // would mean the launch's fees — the largest income the desk has —
+      // never reached the contract as profit, so holders never accrued a cent
+      // of the 15% against them.
+      sweptTotal += record.amount ?? 0;
     }
   }
 

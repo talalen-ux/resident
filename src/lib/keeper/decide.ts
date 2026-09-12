@@ -62,6 +62,14 @@ export type PositionObservation = {
   /** Unswept fees inside the position, in quote units. */
   feesUnclaimed: number;
   /**
+   * Fee income the model predicts for THIS interval, in quote units.
+   *
+   * Carried so the journal can record it beside the mark. Capture is measured
+   * by comparing the sum of these across a sweep window against what the sweep
+   * actually returned; without it the assumed 0.5 can never be replaced.
+   */
+  feeEstimate?: number;
+  /**
    * What the position is worth right now if closed, in quote units, EXCLUDING
    * unswept fees.
    *
@@ -113,6 +121,23 @@ export type DecideConfig = {
    * cannot afford the transaction that closes a position.
    */
   reserve: number;
+  /**
+   * How many probe positions the desk may hold at once.
+   *
+   * A probe is a deliberately small position opened into a pool that passes
+   * every gate except the entry rate, for the sole purpose of measuring what
+   * fraction of the model's fee estimate is actually collected there.
+   *
+   * It exists because the alternative is a deadlock. Capture is assumed at 0.5
+   * until measured, that assumption makes most pools net-negative, so nothing
+   * opens, so no sweep happens, so nothing is ever measured. A desk that will
+   * not spend anything to learn its own parameters never learns them.
+   *
+   * Bounded on purpose: each probe is minOpen, so the most the desk can lose
+   * finding out is maxProbes * minOpen, and that figure is knowable in advance.
+   * Set to zero to refuse to probe at all.
+   */
+  maxProbes: number;
   /** Do not open a position smaller than this. */
   minOpen: number;
 };
@@ -125,6 +150,9 @@ export const DEFAULT_DECIDE: DecideConfig = {
   costs: { sweepGas: 2, rebalanceGas: 6, rebalanceSlippage: 0.001 },
   reserve: 250,
   minOpen: 250,
+  // Three pools, 250 each: at most 750 at risk to learn the number every other
+  // decision depends on.
+  maxProbes: 3,
 };
 
 export type DecideInput = {
@@ -542,6 +570,61 @@ export function decide(
       binCount: target.binCount,
       reason: `${target.reason}; ${describeShape(target)}`,
     });
+  }
+
+  // 6a. Probe an unmeasured pool.
+  //
+  // Only when rule 6 deployed nothing, only into a pool that clears every gate
+  // except the entry rate, and only where capture has never been measured. The
+  // entry test is being deliberately overridden, and the justification is
+  // narrow: at an ASSUMED capture the test is not evidence about this pool, it
+  // is evidence about the assumption. A pool with a real measurement that still
+  // fails is refused like any other.
+  const deployed = intents.some((intent) => intent.kind === "open");
+  if (!deployed && !input.paused && config.maxProbes > 0) {
+    const probes = input.state.positions.filter((p) => p.probe).length;
+    const budget = input.idleCapital - config.reserve;
+    const candidate = input.scan.ranked.find(
+      (result) =>
+        result.eligible &&
+        result.capture.source === "assumed" &&
+        !held.has(result.pool.name),
+    );
+
+    if (!candidate) {
+      passed.push({
+        subject: "probe",
+        reason: "every eligible pool has either been measured or is already held",
+      });
+    } else if (probes >= config.maxProbes) {
+      passed.push({
+        subject: "probe",
+        reason: `${probes} probes open, the limit is ${config.maxProbes}`,
+      });
+    } else if (budget < config.minOpen) {
+      passed.push({
+        subject: "probe",
+        reason: `${budget.toFixed(0)} deployable is under the ${config.minOpen} floor`,
+      });
+    } else {
+      intents.push({
+        id: intentId("open", now),
+        kind: "open",
+        chain: candidate.pool.chain,
+        pool: candidate.pool.name,
+        venueKind: candidate.pool.kind,
+        capital: config.minOpen,
+        probe: true,
+        lower: 0,
+        upper: 0,
+        halfWidth: candidate.halfWidth,
+        shape: candidate.shape,
+        binCount: candidate.binCount,
+        reason:
+          `probe: capture here is assumed, not measured. ${config.minOpen} to find out, ` +
+          `${probes + 1} of ${config.maxProbes}`,
+      });
+    }
   }
 
   // 6b. Claim the launch's own fees.

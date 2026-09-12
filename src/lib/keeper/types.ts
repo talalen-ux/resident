@@ -44,6 +44,13 @@ export type KeeperPosition = {
   feesSwept: number;
   /** When fees were last swept, or openedAt if never. */
   lastSweptAt: number;
+  /**
+   * Opened to measure capture rather than because the model said it pays.
+   *
+   * Tracked so the probe budget can be counted, and so a reader of the ledger
+   * can tell a position the desk believed in from one it opened to find out.
+   */
+  probe?: boolean;
 };
 
 /**
@@ -79,6 +86,8 @@ export type Intent =
       quantity?: number;
       shape?: LiquidityShape;
       binCount?: number;
+      /** Opened to measure capture, not because the entry test passed. */
+      probe?: boolean;
       reason: string;
     }
   | { id: string; kind: "close"; positionId: string; reason: string }
@@ -165,6 +174,8 @@ export type JournalRecord =
        * simply does not contribute to the retire run.
        */
       rate?: number;
+      /** Model fee income for the interval, for the capture calibration. */
+      feeEstimate?: number;
     }
   | { at: number; kind: "heartbeat"; ok: boolean; note: string }
   /**
@@ -181,7 +192,15 @@ export type KeeperState = {
   positions: KeeperPosition[];
   /** Journalled but never settled. Must be reconciled before anything else. */
   inFlight: Intent[];
-  /** Fees swept across all positions, ever, in quote units. */
+  /**
+   * Income the desk has actually banked, ever, in quote units.
+   *
+   * Fees swept out of positions AND fees claimed from the launch. Both are
+   * realised, both have no cost basis, and the record intent books the
+   * difference between this and the vault's own ledger. Counting only one of
+   * them would leave the other permanently unbooked, so holders would never
+   * accrue against it.
+   */
   sweptTotal: number;
   /** Timestamp of the last record of any kind, or 0 for an empty journal. */
   lastRecordAt: number;
