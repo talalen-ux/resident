@@ -99,8 +99,10 @@ export function replay(records: JournalRecord[]): KeeperState {
         kind: intent.venueKind,
         handle: record.handle ?? "",
         capital: record.amount ?? intent.capital,
-        lower: intent.lower,
-        upper: intent.upper,
+        // What the venue used, falling back to what was asked for. A position
+        // recorded with zero bounds cannot be marked at all.
+        lower: record.lower ?? intent.lower,
+        upper: record.upper ?? intent.upper,
         shape: intent.shape,
         binCount: intent.binCount,
         openedAt: record.at,
@@ -249,6 +251,9 @@ export async function submit(
     handle?: string;
     amount?: number;
     txHash?: string;
+    /** Bounds the venue chose, when it centred the band itself. */
+    lower?: number;
+    upper?: number;
   }>,
   now = () => Date.now(),
 ): Promise<{ ok: boolean; error?: string; unresolved?: boolean }> {
@@ -262,6 +267,8 @@ export async function submit(
       ok: true,
       handle: result.handle,
       amount: result.amount,
+      lower: result.lower,
+      upper: result.upper,
       txHash: result.txHash,
     });
     return { ok: true };

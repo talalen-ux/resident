@@ -119,7 +119,10 @@ export function ledgerFrom(records: JournalRecord[]): LedgerEntry[] {
       if (record.amount !== undefined) entry.capitalIn = record.amount;
     } else if (intent.kind === "close") {
       entry.closedAt = record.at;
-      entry.proceedsOut = record.amount ?? 0;
+      // An absent amount means nobody observed the proceeds, which is not the
+      // same as proceeds of zero. Recording zero here books the position as a
+      // total loss, and a dry run would report every close that way.
+      entry.proceedsOut = record.amount ?? null;
     }
   }
 
@@ -141,6 +144,8 @@ export function ledgerFrom(records: JournalRecord[]): LedgerEntry[] {
 export type LedgerTotals = {
   positions: number;
   closed: number;
+  /** Closed with proceeds nobody observed. Excluded from `realised`. */
+  unpriced: number;
   open: number;
   feesSwept: number;
   /** Sum over closed positions. Includes losses; that is the point. */
@@ -161,17 +166,21 @@ export type LedgerTotals = {
  * market and reads like a bank balance.
  */
 export function ledgerTotals(entries: LedgerEntry[]): LedgerTotals {
-  const closed = entries.filter((e) => e.realised !== null);
-  const open = entries.filter((e) => e.realised === null);
+  // Closed by the fact of closing, not by whether a number came back with it.
+  // Keying on realised would file every unpriced close under "open".
+  const closed = entries.filter((e) => e.closedAt !== null);
+  const priced = closed.filter((e) => e.realised !== null);
+  const open = entries.filter((e) => e.closedAt === null);
 
   return {
     positions: entries.length,
     closed: closed.length,
+    unpriced: closed.length - priced.length,
     open: open.length,
     feesSwept: entries.reduce((total, e) => total + e.feesSwept, 0),
-    realised: closed.reduce((total, e) => total + (e.realised ?? 0), 0),
+    realised: priced.reduce((total, e) => total + (e.realised ?? 0), 0),
     unrealised: open.reduce((total, e) => total + (e.unrealised ?? 0), 0),
-    winners: closed.filter((e) => (e.realised ?? 0) > 0).length,
-    losers: closed.filter((e) => (e.realised ?? 0) < 0).length,
+    winners: priced.filter((e) => (e.realised ?? 0) > 0).length,
+    losers: priced.filter((e) => (e.realised ?? 0) < 0).length,
   };
 }

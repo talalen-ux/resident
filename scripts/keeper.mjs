@@ -27,6 +27,7 @@ import { FileJournal } from "../src/lib/keeper/journal-file.ts";
 import { checkJournalVolume, volumeFailure } from "../src/lib/keeper/volume.ts";
 import { readPosition } from "../src/lib/keeper/position-reader.ts";
 import { observePosition, toUnits } from "../src/lib/keeper/observer.ts";
+import { accruedFrom, markPaper } from "../src/lib/keeper/paper.ts";
 import {
   readBalance,
   readInventory,
@@ -307,12 +308,69 @@ const deps = {
 
     // Without a vault there is nothing to read a balance or a position from,
     // and inventing either would put the decision engine to work on fiction.
+    //
+    // A paper book is the exception, and only because it is honest about which
+    // half is which: the price is real, so the principal leg is a measurement,
+    // and the fee leg is the model's own estimate and is labelled as such
+    // everywhere it is reported.
     if (!VAULT) {
+      const paperDeposit = Number(process.env.RESIDENT_PAPER ?? 0);
+      if (!paperDeposit) {
+        return {
+          pools,
+          positions: [],
+          current: null,
+          idleCapital: Number(process.env.RESIDENT_DRY_CAPITAL ?? 0),
+          inventory: [],
+          unbookedProfit: 0,
+          unbookedLoss: 0,
+          owed: 0,
+          bridges: {},
+          vault: { owner: "0x", keeper: "0x" },
+        };
+      }
+
+      const state = await loadState(journal);
+      const series = seriesFrom(await journal.read());
+      const byPool = new Map(pools.map((p) => [p.name, p]));
+
+      const positions = [];
+      for (const position of state.positions) {
+        const board = byPool.get(position.pool);
+        if (!board) continue;
+        const entry = series.get(position.id);
+        positions.push(
+          markPaper({
+            position,
+            price: board.prices.at(-1) ?? 0,
+            // The price the position was opened at, from its first mark. Held
+            // nowhere else: the registry stores bounds, not the price they
+            // were centred on.
+            openPrice: entry?.marks[0]?.price ?? board.prices.at(-1) ?? 0,
+            volume: board.volume,
+            liquidity: board.liquidity,
+            volatility: board.volatility,
+            feePips: board.feePips,
+            captureEfficiency: DEFAULT_TICK.decide.scan.capture.unmeasured,
+            feesAccrued: accruedFrom(entry),
+            freshHalfWidth: bandWidth(board.volatility),
+            series: entry,
+            now: Date.now(),
+            intervalMs: intervalSeconds * 1000,
+          }),
+        );
+      }
+
+      // Cash is the deposit plus what has been swept, less what is committed.
+      const committed = state.positions.reduce((sum, p) => sum + p.capital, 0);
+
       return {
         pools,
-        positions: [],
+        positions,
         current: null,
-        idleCapital: Number(process.env.RESIDENT_DRY_CAPITAL ?? 0),
+        manual: control?.drain() ?? [],
+        paused: control?.paused ?? false,
+        idleCapital: Math.max(0, paperDeposit + state.sweptTotal - committed),
         inventory: [],
         unbookedProfit: 0,
         unbookedLoss: 0,

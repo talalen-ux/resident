@@ -169,6 +169,33 @@ A testnet cannot offer that, because none of those things are real there.
 
 Do not move to the third until the second is clean.
 
+### Paper trading, before any of this
+
+To run the whole desk against live pools with no vault, no key and no money:
+
+| Variable | Value |
+|---|---|
+| `RESIDENT_PAPER` | `10000` |
+| `RESIDENT_RPC_URL` | your mainnet RPC |
+
+It ranks real pools, opens positions, marks them against real prices, sweeps
+and retires, and writes all of it to the journal. Then:
+
+```bash
+npm run report -- --journal /data/keeper.ndjson --deposit 10000
+```
+
+**What is real and what is not.** The price is real, so the principal leg and
+the comparison against simply holding are measurements. The fee income is the
+model's own estimate: a position that was never opened collects nothing. That
+figure cannot validate the model because it IS the model, so the report prints
+two bottom lines — one assuming the fee estimate is worth nothing, one assuming
+it is exact — and never a single blended return.
+
+The line to read is `vs simply holding`. A rising price lifts a position's
+quote value even as it loses to holding the same tokens, so principal alone
+reports a gain on exactly the move that cost money.
+
 ### The launch's own fees
 
 Once $RES is launched on Pons with the vault as its creator fee recipient, two

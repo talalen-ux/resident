@@ -31,6 +31,8 @@ export type Mark = {
   rate?: number;
   /** Model fee income for the interval, for the capture calibration. */
   feeEstimate?: number;
+  /** What the same tokens would be worth if simply held. */
+  heldValue?: number;
 };
 
 /** Marks for one position, oldest first, plus the fees swept out of it. */
@@ -64,6 +66,7 @@ export function seriesFrom(records: JournalRecord[]): Map<string, PositionSeries
         price: record.price,
         rate: record.rate,
         feeEstimate: record.feeEstimate,
+        heldValue: record.heldValue,
       });
     } else if (record.kind === "intent" && record.intent.kind === "sweep") {
       sweepIntents.set(record.intent.id, record.intent.positionId);

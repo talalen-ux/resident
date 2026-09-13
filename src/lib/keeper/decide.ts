@@ -138,6 +138,21 @@ export type DecideConfig = {
    * Set to zero to refuse to probe at all.
    */
   maxProbes: number;
+  /**
+   * Intervals a probe is protected from the retire rule.
+   *
+   * Without this the bootstrap fails in a second way, and it is not obvious
+   * until the loop is actually run: a probe is opened precisely because the
+   * model says the pool does not pay, so its rate is negative from the first
+   * tick, so the retire rule closes it after one run — before it has ever been
+   * swept, and a sweep is the only thing that produces a capture sample. The
+   * desk then opens another, retires that, and churns gas forever without
+   * learning anything.
+   *
+   * A probe is bought information. It has to be allowed to live long enough to
+   * deliver it.
+   */
+  probeIntervals: number;
   /** Do not open a position smaller than this. */
   minOpen: number;
 };
@@ -153,6 +168,10 @@ export const DEFAULT_DECIDE: DecideConfig = {
   // Three pools, 250 each: at most 750 at risk to learn the number every other
   // decision depends on.
   maxProbes: 3,
+  // Long enough to accrue fees worth sweeping, which is what produces the
+  // sample. Shorter than the retire rule's own run length would make the
+  // protection meaningless.
+  probeIntervals: 120,
 };
 
 export type DecideInput = {
@@ -320,6 +339,19 @@ export function decide(
       passed.push({ subject: position.pool, reason: "not observed this tick" });
       continue;
     }
+    // A probe under protection is not judged on the rate it was opened in
+    // spite of. It is closed by this rule only once it has had the chance to
+    // produce the measurement it was opened for.
+    if (position.probe && observation.ageIntervals < config.probeIntervals) {
+      passed.push({
+        subject: `${position.pool} retire`,
+        reason:
+          `probe, ${observation.ageIntervals} of ${config.probeIntervals} intervals. ` +
+          "Retiring it before it has been swept would measure nothing",
+      });
+      continue;
+    }
+
     const verdict = shouldRetire(observation.recentRates, config.retire);
     if (verdict.retire) {
       spokenFor.add(position.id);

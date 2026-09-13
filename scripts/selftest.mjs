@@ -35,6 +35,8 @@ const modules = [
   "../src/lib/keeper/preflight-config.ts",
   "../src/lib/keeper/pons.ts",
   "../src/lib/keeper/holders.ts",
+  "../src/lib/keeper/paper.ts",
+  "../src/lib/keeper/ledger.ts",
   "../src/lib/keeper/observer.ts",
   "../src/lib/keeper/position-reader.ts",
   "../src/lib/keeper/vault-reader.ts",

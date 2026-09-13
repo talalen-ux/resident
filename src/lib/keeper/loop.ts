@@ -202,6 +202,7 @@ export async function tick(
       price: position.price,
       rate: position.currentRate,
       feeEstimate: position.feeEstimate,
+      heldValue: (position as { heldValue?: number }).heldValue,
     });
   }
 

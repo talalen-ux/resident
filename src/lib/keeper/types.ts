@@ -151,6 +151,17 @@ export type JournalRecord =
       ok: boolean;
       /** Venue handle for a settled open. */
       handle?: string;
+      /**
+       * Bounds the venue actually used, when the executor chose them.
+       *
+       * An open intent carries a half-width and zero bounds on purpose: the
+       * band has to be centred on the price at submission, not on the one the
+       * tick was priced from. So the real bounds only exist after the fact, and
+       * without them here the registry stores zeroes and every mark against
+       * that position is NaN.
+       */
+      lower?: number;
+      upper?: number;
       /** Quote units moved: fees swept, proceeds returned, capital committed. */
       amount?: number;
       txHash?: string;
@@ -176,6 +187,14 @@ export type JournalRecord =
       rate?: number;
       /** Model fee income for the interval, for the capture calibration. */
       feeEstimate?: number;
+      /**
+       * What the same tokens would be worth if simply held, at this price.
+       *
+       * Written so a report can show divergence without re-deriving it from
+       * bounds and a price it would have to look up. Optional, like the fields
+       * above, because the journal is durable and older records must replay.
+       */
+      heldValue?: number;
     }
   | { at: number; kind: "heartbeat"; ok: boolean; note: string }
   /**
