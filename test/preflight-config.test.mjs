@@ -108,3 +108,32 @@ test("the failure text lists every problem, not just the first", () => {
   // afternoon goes.
   assert.ok(verdict.problems.length >= 2);
 });
+
+test("an RPC URL with no scheme is refused, with the corrected URL in the message", () => {
+  const verdict = checkConfig({ ...base, rpcUrl: "rpc.mainnet.chain.robinhood.com" });
+  assert.equal(verdict.ok, false);
+  const problem = verdict.problems.find((p) => /no scheme/.test(p));
+  assert.ok(problem, "a schemeless URL should be refused");
+  // fetch says "Failed to parse URL from rpc.mainnet...", which reads as a bad
+  // host. The fix belongs in the message, spelled out.
+  assert.match(problem, /https:\/\/rpc\.mainnet\.chain\.robinhood\.com/);
+});
+
+test("http and https are both accepted, and case does not matter", () => {
+  for (const url of [
+    "https://rpc.mainnet.chain.robinhood.com",
+    "http://localhost:8545",
+    "HTTPS://rpc.example.com",
+  ]) {
+    const verdict = checkConfig({ ...base, rpcUrl: url });
+    assert.ok(
+      !verdict.problems.some((p) => /no scheme/.test(p)),
+      `${url} should be accepted`,
+    );
+  }
+});
+
+test("a websocket URL is refused too, since the keeper posts JSON-RPC over HTTP", () => {
+  const verdict = checkConfig({ ...base, rpcUrl: "wss://rpc.example.com" });
+  assert.ok(verdict.problems.some((p) => /no scheme/.test(p)));
+});

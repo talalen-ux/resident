@@ -52,6 +52,16 @@ export function checkConfig(input: ConfigInput): ConfigVerdict {
         "price history from logs, and there is nothing useful it can do " +
         "without a node.",
     );
+  } else if (!/^https?:\/\//i.test(input.rpcUrl)) {
+    // fetch reports this as "Failed to parse URL from <host>", which reads
+    // like the host is wrong rather than that the scheme is missing. It is one
+    // of the easiest variables in the list to paste without its prefix.
+    problems.push(
+      `RESIDENT_RPC_URL is "${input.rpcUrl}", which has no scheme. It must ` +
+        `start with https:// — try "https://${input.rpcUrl}". Without one, ` +
+        "every request fails with a URL parse error that names the host and " +
+        "not the cause.",
+    );
   }
 
   // A key with nothing to act on. The keeper would start, rank pools, and be
