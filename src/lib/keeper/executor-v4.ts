@@ -21,6 +21,8 @@ import { Interface } from "ethers";
 
 import { UNISWAP } from "../chain.ts";
 import { claimCall, escrowOf, sweepCall, verifyClaim } from "./pons.ts";
+import { splitPro } from "./holders.ts";
+import { SELECTORS } from "../desk/selectors.ts";
 import { POSITION_SELECTORS } from "./position-reader.ts";
 import type { PoolKey } from "../sim/v4.ts";
 import type { PoolState } from "../sim/v3.ts";
@@ -45,6 +47,9 @@ const VAULT = new Interface([
   "function absorbLoss(uint256 amount, string reason)",
   "function distribute(address[] recipients, uint256[] amounts)",
 ]);
+
+const OWED_SELECTOR = SELECTORS.owed;
+const RATE_LIMIT_SELECTOR = SELECTORS.rateLimitRemaining;
 
 const PERMIT2 = new Interface([
   "function approve(address token, address spender, uint160 amount, uint48 expiration)",
@@ -91,6 +96,20 @@ export type V4Context = {
   ponsHook?: string;
   /** Raw eth_call, for the reads a claim has to make. */
   call(to: string, data: string): Promise<string>;
+  /**
+   * Who holds the token and what each holds, for a distribution.
+   *
+   * Optional: a desk with no token of its own still runs every other rule. When
+   * absent, a distribute intent is refused rather than guessed at — paying the
+   * wrong list is worse than not paying.
+   */
+  holders?: () => Promise<Map<string, bigint>>;
+  /** Addresses that hold the token but are not holders: the vault, a locker. */
+  notHolders?: string[];
+  /** The asset distributions are paid in, for the vault's per-asset cap. */
+  payoutAsset?: string;
+  /** Most recipients in one distribute call. The contract loops over them. */
+  maxRecipients?: number;
 };
 
 export type RawLog = { address: string; topics: string[]; data: string };
@@ -565,6 +584,66 @@ export function makeV4Executor(ctx: V4Context) {
         description: "book realised profit",
       });
       return { txHash: hash };
+    }
+
+    if (intent.kind === "distribute") {
+      if (!ctx.holders) {
+        throw new Error(
+          "distribute: no holder source configured. Set RESIDENT_TOKEN so the " +
+            "keeper can read the token's Transfer logs; a distribution to a " +
+            "guessed list is worse than no distribution.",
+        );
+      }
+
+      const call = (to: string, data: string) => ctx.call(to, data);
+      const owed = BigInt(
+        (await call(ctx.vault, OWED_SELECTOR)) || "0x0",
+      );
+      if (owed === 0n) return { amount: 0 };
+
+      // The vault caps what may leave per window. Paying up to the cap rather
+      // than up to what is owed means a large accrual drains over several
+      // cycles instead of reverting every time.
+      // The cap is per asset, so it has to be asked for by asset. Asking about
+      // the wrong one returns a limit that has nothing to do with this payment.
+      if (!ctx.payoutAsset) {
+        throw new Error("distribute: payoutAsset is not configured, so the vault's cap cannot be read");
+      }
+      const remaining = BigInt(
+        (await call(
+          ctx.vault,
+          RATE_LIMIT_SELECTOR +
+            ctx.payoutAsset.replace(/^0x/, "").toLowerCase().padStart(64, "0"),
+        )) || "0x0",
+      );
+      const payable = owed < remaining ? owed : remaining;
+      if (payable === 0n) {
+        throw new Error(
+          `distribute: ${owed} is owed but the vault's rate limit has nothing ` +
+            "left in this window. It will pay on the next one.",
+        );
+      }
+
+      const { allocations, total } = splitPro(await ctx.holders(), payable, {
+        exclude: [ctx.vault, ...(ctx.notHolders ?? [])],
+        maxRecipients: ctx.maxRecipients ?? 400,
+      });
+      if (allocations.length === 0) {
+        throw new Error(
+          "distribute: nothing to pay. Either the token has no holders outside " +
+            "the excluded addresses, or every share rounded to zero.",
+        );
+      }
+
+      const { hash } = await send({
+        to: ctx.vault,
+        data: VAULT.encodeFunctionData("distribute", [
+          allocations.map((a) => a.recipient),
+          allocations.map((a) => a.amount),
+        ]),
+        description: `distribute to ${allocations.length} holders`,
+      });
+      return { txHash: hash, amount: Number(total) };
     }
 
     if (intent.kind === "claim") {

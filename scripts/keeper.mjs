@@ -35,6 +35,7 @@ import {
   readVaultRoles,
 } from "../src/lib/keeper/vault-reader.ts";
 import { seriesFrom } from "../src/lib/keeper/marks.ts";
+import { HolderIndex } from "../src/lib/keeper/holder-index.ts";
 import { claimable as claimableOf, escrowOf, pending as pendingOf } from "../src/lib/keeper/pons.ts";
 import { poolId as poolIdOf } from "../src/lib/sim/v4.ts";
 import { bandWidth } from "../src/lib/sim/strategy.ts";
@@ -202,6 +203,35 @@ const reader = rpcReader(RPC);
  * Idle capital, position values, fee income and the vault ledger all have to be
  * in the same unit or the rules compare numbers that only look comparable.
  */
+/**
+ * The $RES holder list, when a token is configured.
+ *
+ * Incremental: it reads forward from the last block it saw rather than
+ * replaying every transfer on each distribution, which on a token with any
+ * history would take longer than the cycle it is meant to serve.
+ */
+const RES_TOKEN = process.env.RESIDENT_TOKEN;
+const holderIndex = RES_TOKEN
+  ? new HolderIndex(
+      async ({ address, fromBlock, toBlock }) =>
+        rpc("eth_getLogs", [
+          {
+            address,
+            fromBlock: `0x${fromBlock.toString(16)}`,
+            toBlock: `0x${toBlock.toString(16)}`,
+            topics: [
+              "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
+            ],
+          },
+        ]),
+      RES_TOKEN,
+      {
+        maxBlockSpan: Number(process.env.RESIDENT_MAX_BLOCK_SPAN ?? 10_000),
+        deployedAt: Number(process.env.RESIDENT_TOKEN_BLOCK ?? 0),
+      },
+    )
+  : null;
+
 const QUOTE = {
   address: process.env.RESIDENT_USDG ?? TOKENS.usdg,
   decimals: Number(process.env.RESIDENT_USDG_DECIMALS ?? 6),
@@ -227,6 +257,20 @@ const execute = VAULT
       positionManager: process.env.RESIDENT_V4_POSITION_MANAGER ?? UNISWAP.v4PositionManager,
       permit2: process.env.RESIDENT_PERMIT2 ?? UNISWAP.permit2,
       ponsHook: process.env.RESIDENT_PONS_HOOK,
+      payoutAsset: QUOTE.address,
+      // Addresses that hold $RES without being holders to be paid. The vault
+      // is excluded by the executor; these are the launch's own contracts.
+      notHolders: (process.env.RESIDENT_NOT_HOLDERS ?? "")
+        .split(",")
+        .map((a) => a.trim())
+        .filter(Boolean),
+      holders: holderIndex
+        ? async () => {
+            const head = Number(await rpc("eth_blockNumber", []));
+            await holderIndex.refresh(head);
+            return holderIndex.snapshot();
+          }
+        : undefined,
       call: (to, data) => rpc("eth_call", [{ to, data }, "latest"]),
       poolFor: (name) => {
         const w = byName.get(name);

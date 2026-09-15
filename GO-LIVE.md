@@ -228,6 +228,32 @@ The claimed amount lands in the vault as ordinary balance, which the next tick
 deploys like any other idle capital. Nothing downstream knows or cares that it
 came from the launch.
 
+### Paying holders the 15%
+
+The vault enforces the split and refuses to pay more than it owes, but
+`distribute()` takes a list: the contract cannot know who the holders are. Once
+$RES exists:
+
+| Variable | Value |
+|---|---|
+| `RESIDENT_TOKEN` | the $RES token address |
+| `RESIDENT_TOKEN_BLOCK` | the block it was deployed at |
+| `RESIDENT_NOT_HOLDERS` | comma-separated: the curve, the locker, anything holding $RES that is not a holder to be paid |
+
+The list is built from the token's own Transfer logs, incrementally — it reads
+forward from the last block it saw rather than replaying every transfer each
+cycle, which on a token with history would take longer than the cycle it serves.
+`RESIDENT_TOKEN_BLOCK` matters: without it a rebuild scans from genesis.
+
+Two behaviours worth knowing. Shares round **down**, always: the vault reverts
+if the total exceeds what it owes, so rounding up costs a whole cycle while
+rounding down leaves dust that rolls forward. And a distribution is capped by
+the vault's per-asset rate limit rather than by what is owed, so a large accrual
+drains over several cycles instead of reverting every time.
+
+With no `RESIDENT_TOKEN` the keeper refuses to distribute rather than guessing a
+list. Paying the wrong addresses is worse than not paying.
+
 ### The control console
 
 Manual override, for when the rules should not run: an opportunity the board
