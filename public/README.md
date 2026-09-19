@@ -13,6 +13,20 @@ live at the matching path:
 
 Three marks, white with the dark green accent, on real transparency:
 
+| File | Use |
+|---|---|
+| `/brand/resident-mark-lime.png` | the favicon treatment: ink on lime, full bleed |
+| `/brand/resident-mark.png` | ink frame, brand-green reference and block, transparent |
+| `/brand/resident-mark-white.png` | for dark grounds: white frame, lime accent, transparent |
+
+Each is 1024px square with a `-256` variant beside it. They are rendered from
+`src/app/icon.svg` and the `Mark` component, so they are the same geometry the
+site draws rather than a redrawing of it. The wordmark is **not** here: it is
+live text in Chivo, and an image of it would go stale the moment the type
+changes.
+
+## The three uploaded marks
+
 | File | Shape |
 |---|---|
 | `/brand/hero-route.png` | the stepped route |
