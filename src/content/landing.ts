@@ -1,11 +1,16 @@
 /**
  * Landing page copy. Four sections; the full method lives at /docs.
  *
- * Register: a liquidity protocol describing itself plainly — mechanism first,
- * precise numbers, no hype. What that register must not do is borrow the claims
- * that usually travel with it: Resident is not non-custodial, not audited, not
- * governed and not deployed, so none of those words appear anywhere on the
- * page. The FAQ here is technical only; custody and deployment status are
+ * Register: short sentences, the number before the explanation. This is a page
+ * someone reads standing up, deciding in thirty seconds whether to care — not a
+ * paper they sit down with. An earlier draft ran 40-word single sentences and a
+ * 102-word FAQ answer, which is how a method note reads, not a product.
+ *
+ * Plain does not mean loose. Every figure here is the one the code runs, and
+ * the claims that usually travel with this register are the ones Resident
+ * cannot make: not non-custodial, not audited, not governed, not deployed. None
+ * of those words appear on the page. Being punchier must never become a way to
+ * imply them. The FAQ is technical only; custody and deployment status are
  * stated at /docs, which every section links to.
  *
  * On the 85/15 split: the 85% is protocol working capital, not a holder claim
@@ -17,8 +22,8 @@
 export const TOKEN = "$RES";
 
 export const HERO = {
-  headline: "The liquidity layer for tokenized equities.",
-  sub: "Tokenized equity markets are thin enough that a five-figure order moves the price. Resident is the capital on the other side of that trade, across Robinhood Chain and Solana. Trading fees on $RES fund every position, and 15% of realized profit goes to holders in USDG every 15 minutes.",
+  headline: "$RES buys liquidity. The liquidity pays holders.",
+  sub: "Tokenized equity markets are thin. A five-figure order moves the price. Resident is the capital on the other side of that trade, on Robinhood Chain and Solana. Trading fees on $RES fund every position. 15% of realized profit goes to holders in USDG, every 15 minutes.",
   cta: "Get $RES",
   secondary: "Read the docs",
 };
@@ -35,45 +40,45 @@ export const STEPS_HEADING =
 export const STEPS = [
   {
     n: "01",
-    title: "Capitalization",
-    body: "Trading fees on $RES accrue to the vault, and they are the only capital the protocol ever deploys. There is no raise, no treasury and no outside investor, so capacity is set by the token's own turnover and by nothing else.",
+    title: "Fees in",
+    body: "Trading fees on $RES go to the vault. That is the only capital the protocol ever deploys. No raise, no treasury, no investors. Capacity is set by the token's own turnover.",
   },
   {
     n: "02",
-    title: "Liquidity provision",
-    body: "That capital is placed as concentrated liquidity in the pools worth being in: thin enough that a five-figure position takes a real share of the flow, busy enough to pay continuously, and holding a range rather than falling through one.",
+    title: "Capital out",
+    body: "It goes into concentrated positions in pools worth being in. Thin enough that five figures takes real share of the flow. Busy enough to pay continuously. Holding a range instead of falling through one.",
   },
   {
     n: "03",
-    title: "Position management",
-    body: "A position earns only while price trades inside its range, so ranges are re-centered as markets move and retired when a pool stops paying for itself. Positions that move against the protocol are re-centered rather than sold into thin liquidity.",
+    title: "Positions tended",
+    body: "A position earns only while price sits inside its range. Ranges are re-centered as markets move, and retired when a pool stops paying for itself. A position that moves against us gets re-centered, not dumped into thin liquidity.",
   },
 ];
 
-export const EDGE_HEADING = "Four things this does differently.";
+export const EDGE_HEADING = "Four things we do differently.";
 
 export const EDGE = [
   {
     label: "Net, not yield",
-    body: "Every liquidity dashboard publishes fee income. Fees are the flattering half: a position can collect handsomely while the price move underneath it costs more than the fees bring in. Resident publishes fees less what the price move cost, over the same window, including when that number is negative.",
+    body: "Every liquidity dashboard publishes fee income. Fees are the flattering half. A position can collect handsomely while the price move underneath costs more than it brings in. We publish fees less what the move cost, over the same window. Including when that number is negative.",
   },
   {
-    label: "Capital that follows the fees",
-    body: "A position can be perfectly healthy and still be in the wrong pool: above its floor, nothing wrong with it, earning a fraction of what something else on the board pays. Nothing about that looks like a loss, so most desks never move it. Resident compares every open position against the best pool available each interval and rotates when the difference clears three times what the round trip costs.",
+    label: "Capital follows the fees",
+    body: "A position can be healthy and still be in the wrong pool: nothing wrong with it, earning a fraction of what is available elsewhere. That never looks like a loss, so most desks leave it. We check every position against the board each interval. Capital moves when the gap clears three times the round trip.",
   },
   {
     label: "Two chains, one ranking",
-    body: "A concentrated range on Robinhood Chain and a discrete-bin position on Solana earn in completely different ways, so ranking them on headline yield compares two numbers that do not mean the same thing. Both are priced into one figure that does, and capital only crosses when the edge covers the round trip.",
+    body: "A range on Robinhood Chain and a bin on Solana earn in completely different ways. Ranking them on headline yield compares two numbers that do not mean the same thing. Both get priced into one that does. Capital only crosses when the edge covers the trip.",
   },
   {
     label: "Every threshold published",
-    body: "The conditions a pool has to clear, the width a position is given, the point at which it is retired: all of it is stated with its value in the docs, read from the code the protocol runs. Changing one is visible as a change.",
+    body: "What a pool has to clear. How wide a position gets. When it is retired. Every number is in the docs, read from the code that runs. Change one and it shows as a change.",
   },
 ] as const;
 
 export const PAYOUT = {
   headline: "Distributions",
-  body: "Realized profit is split at a fixed ratio enforced by the contract. 15% accrues to $RES holders and is distributed pro-rata in USDG every 15 minutes. The remaining 85% is retained as working capital: it funds new positions and absorbs losses, and holders have no claim on it.",
+  body: "Realized profit splits at a fixed ratio the contract enforces. 15% to $RES holders, pro-rata in USDG, every 15 minutes. The other 85% stays as working capital: it funds new positions and absorbs losses. Holders have no claim on it.",
   points: [
     {
       label: "Pro-rata",
@@ -105,19 +110,19 @@ export const FAQ_HEADING = "FAQ";
 export const FAQS = [
   {
     q: "What is a concentrated position?",
-    a: "Capital committed between two prices rather than spread across every price. While the market trades inside that range, the position earns a share of every fee paid. Outside it, the position holds inventory and earns nothing. A narrower range takes a larger share of the flow and spends more time out of it.",
+    a: "Capital committed between two prices instead of spread across all of them. Inside that range, the position earns a share of every fee paid. Outside it, it holds inventory and earns nothing. Narrower takes more of the flow and spends more time out of range.",
   },
   {
     q: "How are pools chosen?",
-    a: "Seven conditions, all of which must hold. The pool can be priced in dollars, which for a WETH-quoted pool means converting at what ether is trading at in its own market. The fee the pool charges reaches the position, read live from the pool rather than assumed from the tier it was created with. At least $25,000 of volume in the trailing hour. No more than $400,000 of liquidity within 5% of the price. Trading at 60% or more of its 24-hour high. At least 20 minutes old. And the providers already in that pool are net winners rather than net losers.",
+    a: "Seven conditions, all of them. The pool prices in dollars. The fee it charges actually reaches the position, read live rather than assumed from its tier. $25,000 of volume in the last hour. No more than $400,000 of liquidity within 5% of price. Trading at 60% or more of its 24-hour high. At least 20 minutes old. And the providers already in it are net winners.",
   },
   {
     q: "How wide is a position?",
-    a: "Width is derived from each pool's own measured volatility rather than fixed: 1.25 standard deviations over a four-hour horizon, bounded at 1% and 60%. A volatile pool receives a wider range and a smaller share of flow by construction. At that width a position sits in range roughly 91% of the time. Buying the last few points of coverage costs about half the income.",
+    a: "Not fixed. It comes from each pool's own measured volatility: 1.25 standard deviations over four hours, bounded at 1% and 60%. A volatile pool gets a wider range and a smaller share of flow. At that width a position is in range about 91% of the time. Buying the last few points of coverage costs about half the income.",
   },
   {
     q: "Why not just open in the highest-fee pool?",
-    a: "Because fee income is only one side of the ledger. A pool paying 3% a day into a book that moves 20% a day loses money, and a ranking built on fees recommends it every time. A position is opened only when expected fee income exceeds the expected cost of the price moving, measured at that pool's own volatility.",
+    a: "Fee income is one side of the ledger. A pool paying 3% a day into a book that moves 20% a day loses money — and a ranking built on fees recommends it every time. We open only when expected fees beat the expected cost of the price moving. Measured at that pool's own volatility, not a house average.",
   },
 ];
 
