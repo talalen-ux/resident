@@ -228,6 +228,34 @@ The claimed amount lands in the vault as ordinary balance, which the next tick
 deploys like any other idle capital. Nothing downstream knows or cares that it
 came from the launch.
 
+### Closing the USDG loop
+
+The desk deploys the quote asset and is paid in whatever the pool charges fees
+in, so without a conversion step the treasury slowly becomes a portfolio of the
+tokens it has been making markets in — carrying full price risk, earning
+nothing, and unavailable for the next position.
+
+Allowlist the router from the owner wallet, once:
+
+```bash
+npm run owner -- set-venue 0x8876789976decbfcbbbe364623c63652db8c0904 true   # UniversalRouter
+```
+
+**Selling is not the first move.** Fees arrive in a token exactly when that
+token is trading, and dumping into the flow you just earned from pays the
+spread twice. So the ladder gets first refusal: inventory is rested above the
+price for `patience` intervals (two hours by default) and only sold at market
+if it has not cleared.
+
+Two bounds on every conversion. It never sells more than 20% of the pool's
+in-band depth in one trade, because taking the whole line out at any price is
+how a harvest turns into a loss larger than the fees that produced it. And it
+always carries a minimum out, 1% below the quoted price — a swap with no
+slippage bound on a thin pool is the whole position for nothing.
+
+Inventory the keeper cannot date is never sold. Selling on an unknown age is
+selling on no reason.
+
 ### Paying holders the 15%
 
 The vault enforces the split and refuses to pay more than it owes, but

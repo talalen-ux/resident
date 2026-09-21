@@ -44,6 +44,7 @@ import {
   type SweepConfig,
 } from "./sweep.ts";
 import { bestLadder } from "../sim/ladder.ts";
+import { DEFAULT_CONVERT, shouldConvert, type ConvertConfig } from "./swap-v4.ts";
 import { intentId } from "./registry.ts";
 import type { Intent, KeeperState } from "./types.ts";
 import type { ManualOrder } from "./control.ts";
@@ -113,6 +114,8 @@ export type DecideConfig = {
   retire: RetireConfig;
   /** When capital should leave a working pool for a better one. */
   rotation: RotationConfig;
+  /** When harvested inventory is sold back to the quote asset. */
+  convert: ConvertConfig;
   costs: DeskCosts;
   /**
    * Leave this much quote uncommitted, in quote units.
@@ -162,6 +165,7 @@ export const DEFAULT_DECIDE: DecideConfig = {
   sweep: DEFAULT_SWEEP,
   retire: DEFAULT_RETIRE,
   rotation: DEFAULT_ROTATION,
+  convert: DEFAULT_CONVERT,
   costs: { sweepGas: 2, rebalanceGas: 6, rebalanceSlippage: 0.001 },
   reserve: 250,
   minOpen: 250,
@@ -200,6 +204,13 @@ export type DecideInput = {
     quantity: number;
     /** Quote per base. */
     price: number;
+    /**
+     * Intervals this inventory has sat unconverted.
+     *
+     * Absent means the keeper could not date it, and undated inventory is
+     * never converted: selling on an unknown age is selling on no reason.
+     */
+    heldIntervals?: number;
   }[];
   /** Distribute once owed reaches this. */
   distributeAt: number;
@@ -564,6 +575,52 @@ export function decide(
       quantity: holding.quantity,
       reason: `laddering inventory: ${placement.verdict.reason}`,
     });
+  }
+
+  // 5b. Sell inventory the ladder never cleared.
+  //
+  // The desk deploys the quote asset and is paid in whatever the pool charges
+  // fees in, so without this the treasury becomes a portfolio of the tokens it
+  // has been making markets in — carrying full price risk, earning nothing, and
+  // unavailable for the next position.
+  //
+  // The ladder gets first refusal, which is why this is aged rather than
+  // immediate: fees arrive in a token exactly when that token is trading, and
+  // selling into the flow we just earned from pays the spread twice.
+  for (const held of input.inventory) {
+    if (held.heldIntervals === undefined) {
+      passed.push({
+        subject: `${held.pool} convert`,
+        reason: "inventory could not be dated, and selling on an unknown age is selling on no reason",
+      });
+      continue;
+    }
+    const board = byPool.get(held.pool);
+    if (!board) {
+      passed.push({
+        subject: `${held.pool} convert`,
+        reason: "not on the board, so there is no depth to price the sale against",
+      });
+      continue;
+    }
+
+    const verdict = shouldConvert(
+      { quantity: held.quantity, price: held.price, heldIntervals: held.heldIntervals },
+      board.pool.kind === "band" ? board.pool.liquidity : 0,
+      config.convert,
+    );
+    if (verdict.convert) {
+      intents.push({
+        id: intentId("convert", now),
+        kind: "convert",
+        pool: held.pool,
+        quantity: verdict.amountIn,
+        price: held.price,
+        reason: verdict.reason,
+      });
+    } else {
+      passed.push({ subject: `${held.pool} convert`, reason: verdict.reason });
+    }
   }
 
   // 6. Deploy idle capital.

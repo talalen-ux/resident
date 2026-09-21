@@ -34,7 +34,7 @@ import {
   readVaultLedger,
   readVaultRoles,
 } from "../src/lib/keeper/vault-reader.ts";
-import { seriesFrom } from "../src/lib/keeper/marks.ts";
+import { inventoryAge, seriesFrom } from "../src/lib/keeper/marks.ts";
 import { HolderIndex } from "../src/lib/keeper/holder-index.ts";
 import { claimable as claimableOf, escrowOf, pending as pendingOf } from "../src/lib/keeper/pons.ts";
 import { poolId as poolIdOf } from "../src/lib/sim/v4.ts";
@@ -258,6 +258,7 @@ const execute = VAULT
       permit2: process.env.RESIDENT_PERMIT2 ?? UNISWAP.permit2,
       ponsHook: process.env.RESIDENT_PONS_HOOK,
       payoutAsset: QUOTE.address,
+      universalRouter: process.env.RESIDENT_UNIVERSAL_ROUTER ?? UNISWAP.universalRouter,
       // Addresses that hold $RES without being holders to be paid. The vault
       // is excluded by the executor; these are the launch's own contracts.
       notHolders: (process.env.RESIDENT_NOT_HOLDERS ?? "")
@@ -560,6 +561,20 @@ const deps = {
         }))
         .filter((t) => t.address && t.price > 0),
     );
+
+    // Date each holding so the conversion rule can tell fresh fees from
+    // inventory the ladder has quietly failed to clear. Undated inventory is
+    // never sold: the rule refuses rather than guessing.
+    const interval = intervalSeconds * 1000;
+    for (const held of inventory) {
+      const age = inventoryAge(
+        records,
+        held.pool,
+        (positionId) => state.positions.find((p) => p.id === positionId)?.pool,
+        Date.now(),
+      );
+      if (age !== null) held.heldIntervals = Math.floor(age / interval);
+    }
 
     // Profit the desk has banked but the contract has not been told about yet.
     // The ledger is the record of what has been booked; the difference is what

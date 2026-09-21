@@ -201,3 +201,51 @@ export function samplesFrom(
 
   return samples;
 }
+
+/**
+ * How long this pool's inventory has been sitting, in milliseconds.
+ *
+ * Measured from the first sweep AFTER the last conversion, not from the most
+ * recent sweep. A desk that sweeps every hour would otherwise reset the clock
+ * every hour and never age anything out, which is exactly the accumulation the
+ * conversion rule exists to stop.
+ *
+ * Returns null when nothing has been swept since the last conversion, which is
+ * not the same as zero: there is no inventory to age.
+ */
+export function inventoryAge(
+  records: JournalRecord[],
+  pool: string,
+  poolOf: (positionId: string) => string | undefined,
+  now: number,
+): number | null {
+  let lastConversion = 0;
+  const sweepIntents = new Map<string, string>();
+  const sweptAt: number[] = [];
+
+  for (const record of records) {
+    if (record.kind === "intent") {
+      if (record.intent.kind === "sweep") {
+        sweepIntents.set(record.intent.id, record.intent.positionId);
+      }
+      continue;
+    }
+    if (record.kind !== "settled" || !record.ok) continue;
+
+    const positionId = sweepIntents.get(record.intentId);
+    if (positionId !== undefined && poolOf(positionId) === pool) {
+      sweptAt.push(record.at);
+    }
+  }
+
+  // Conversions are journalled as their own intent, so a settled one for this
+  // pool marks the point the inventory clock restarts.
+  for (const record of records) {
+    if (record.kind === "intent" && record.intent.kind === "convert" && record.intent.pool === pool) {
+      lastConversion = Math.max(lastConversion, record.at);
+    }
+  }
+
+  const since = sweptAt.filter((at) => at > lastConversion).sort((a, b) => a - b);
+  return since.length ? now - since[0] : null;
+}

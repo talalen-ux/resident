@@ -22,6 +22,7 @@ import { Interface } from "ethers";
 import { UNISWAP } from "../chain.ts";
 import { claimCall, escrowOf, sweepCall, verifyClaim } from "./pons.ts";
 import { splitPro } from "./holders.ts";
+import { minOutFor, swapCall, type ConvertConfig } from "./swap-v4.ts";
 import { SELECTORS } from "../desk/selectors.ts";
 import { POSITION_SELECTORS } from "./position-reader.ts";
 import type { PoolKey } from "../sim/v4.ts";
@@ -106,8 +107,12 @@ export type V4Context = {
   holders?: () => Promise<Map<string, bigint>>;
   /** Addresses that hold the token but are not holders: the vault, a locker. */
   notHolders?: string[];
-  /** The asset distributions are paid in, for the vault's per-asset cap. */
+  /** The asset distributions are paid in, and the asset inventory converts to. */
   payoutAsset?: string;
+  /** Where a conversion swap is routed. Defaults to the chain constant. */
+  universalRouter?: string;
+  /** Slippage and sizing for a conversion. */
+  convert?: ConvertConfig;
   /** Most recipients in one distribute call. The contract loops over them. */
   maxRecipients?: number;
 };
@@ -584,6 +589,72 @@ export function makeV4Executor(ctx: V4Context) {
         description: "book realised profit",
       });
       return { txHash: hash };
+    }
+
+    if (intent.kind === "convert") {
+      const found = ctx.poolFor(intent.pool);
+      if (!found) {
+        throw new Error(`convert: ${intent.pool} is not a pool this executor can reach`);
+      }
+
+      const quote = ctx.payoutAsset?.toLowerCase();
+      if (!quote) throw new Error("convert: payoutAsset is not configured");
+
+      // Which side is the quote decides the direction. Getting this backwards
+      // buys the token it meant to sell, with the treasury's cash.
+      const zeroForOne = found.key.currency1.toLowerCase() === quote;
+      if (!zeroForOne && found.key.currency0.toLowerCase() !== quote) {
+        throw new Error(
+          `convert: neither side of ${intent.pool} is the payout asset, so there is ` +
+            "nothing to convert into",
+        );
+      }
+
+      const sold = zeroForOne ? found.key.currency0 : found.key.currency1;
+      const soldDecimals = zeroForOne
+        ? found.state.token0.decimals
+        : found.state.token1.decimals;
+      const quoteDecimals = zeroForOne
+        ? found.state.token1.decimals
+        : found.state.token0.decimals;
+
+      const amountIn = BigInt(
+        Math.floor(intent.quantity * Math.pow(10, soldDecimals)),
+      );
+      // Never more than the vault holds: the router pulls what the plan says
+      // and reverts after the gas is spent.
+      const balance = await ctx.balanceOf(sold);
+      const selling = amountIn < balance ? amountIn : balance;
+      if (selling === 0n) {
+        throw new Error(`convert: the vault holds none of ${sold}`);
+      }
+
+      const router = ctx.universalRouter ?? UNISWAP.universalRouter;
+      const minOut = minOutFor(
+        Number(selling) / Math.pow(10, soldDecimals),
+        intent.price,
+        quoteDecimals,
+        ctx.convert,
+      );
+
+      // The router pulls through Permit2, exactly as a mint does.
+      for (const approval of approvalsFor({
+        vault: ctx.vault,
+        permit2: ctx.permit2 ?? UNISWAP.permit2,
+        positionManager: router,
+      }, sold, selling, ctx.now() + (ctx.deadlineSeconds ?? 120))) {
+        await send(approval);
+      }
+
+      const swap = swapCall({
+        key: found.key,
+        zeroForOne,
+        amountIn: selling,
+        minOut,
+        deadline: ctx.now() + (ctx.deadlineSeconds ?? 120),
+      });
+      const { hash } = await send(viaVault(ctx.vault, swap.to, swap.data, swap.description));
+      return { txHash: hash, amount: Number(minOut) / Math.pow(10, quoteDecimals) };
     }
 
     if (intent.kind === "distribute") {

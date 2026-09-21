@@ -129,6 +129,17 @@ export type Intent =
    */
   | {
       id: string;
+      kind: "convert";
+      /** Pool whose inventory is being sold, as the scanner names it. */
+      pool: string;
+      /** Whole base tokens to sell. May be less than what is held. */
+      quantity: number;
+      /** Quote per base at the decision, for the minimum-out bound. */
+      price: number;
+      reason: string;
+    }
+  | {
+      id: string;
       kind: "claim";
       /** The launch's pool on the meme hook. */
       poolId: string;
