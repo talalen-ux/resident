@@ -163,6 +163,20 @@ export type EntryVerdict = {
 export type EntryConfig = {
   width: WidthConfig;
   /** Minimum net rate per interval to bother. */
+  /**
+   * Net rate a position must beat, per interval.
+   *
+   * Zero means "any profit is worth having", which is wrong whenever the same
+   * capital could be lent instead. The floor is the opportunity cost, so it is
+   * derived from a lending yield rather than set directly: see hurdleFrom.
+   *
+   * Worth knowing how little this moves the answer. A 7% annual yield is
+   * 0.00133 bps per minute, while the bleed term on a real board runs to
+   * -0.07 and beyond. The hurdle is a correction at the margin; the cost of
+   * the price moving is what actually rejects pools, and confusing the two
+   * leads to a desk that thinks it is being disciplined because it set a
+   * hurdle while the term that matters goes unmeasured.
+   */
   minNetRate: number;
   /** Intervals per year, for annualising. */
   intervalsPerYear: number;
@@ -170,9 +184,27 @@ export type EntryConfig = {
 
 export const DEFAULT_ENTRY_CONFIG: EntryConfig = {
   width: DEFAULT_WIDTH_CONFIG,
+  // Zero until a lending venue is actually configured. A hurdle taken from a
+  // yield the desk cannot reach is not an opportunity cost, it is a number.
   minNetRate: 0,
   intervalsPerYear: 525_600, // minute intervals
 };
+
+/**
+ * Turn an annual lending yield into the per-interval floor an entry must beat.
+ *
+ * The yield belongs to a venue the desk can actually move capital into. A
+ * hurdle set from a rate published somewhere the vault has no path to is
+ * self-flattery: it makes the desk look selective while changing nothing about
+ * what it could have done with the money instead.
+ */
+export function hurdleFrom(
+  annualYield: number,
+  intervalsPerYear = DEFAULT_ENTRY_CONFIG.intervalsPerYear,
+): number {
+  if (!(annualYield > 0) || !(intervalsPerYear > 0)) return 0;
+  return annualYield / intervalsPerYear;
+}
 
 /**
  * Should the desk open a band here?

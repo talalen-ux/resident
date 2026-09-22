@@ -235,3 +235,23 @@ test("no page still promises a distribution on a fixed clock", async () => {
       offenders.join("\n  "),
   );
 });
+
+test("a lending hurdle converts to the units the entry test actually uses", async () => {
+  const { hurdleFrom, DEFAULT_ENTRY_CONFIG } = await import("../src/lib/sim/strategy.ts");
+
+  // 7% a year, over minute intervals.
+  const hurdle = hurdleFrom(0.07);
+  assert.ok(Math.abs(hurdle * 1e4 - 0.00133) < 1e-5, `${hurdle * 1e4} bps/min`);
+
+  // The point of the conversion is the comparison it enables: the bleed term
+  // on a real pool is two orders of magnitude larger. A desk that sets a
+  // hurdle and calls itself disciplined, while leaving capture unmeasured,
+  // has tuned the wrong number.
+  assert.ok(hurdle * 1e4 < 0.01, "a plausible hurdle is under a hundredth of a bp per minute");
+
+  // No yield, no hurdle. A floor taken from a venue the vault cannot reach
+  // would make the desk look selective while changing nothing.
+  assert.equal(hurdleFrom(0), 0);
+  assert.equal(hurdleFrom(-0.05), 0);
+  assert.equal(DEFAULT_ENTRY_CONFIG.minNetRate, 0);
+});
