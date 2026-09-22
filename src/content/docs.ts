@@ -36,7 +36,7 @@ export const HERO_HEADLINE =
   "Protocol mechanics, parameters and current status.";
 
 export const HERO_STANDFIRST =
-  "Resident provides liquidity to tokenized equity pools on Robinhood Chain and earns a share of the fees paid there. Trading fees on $RES capitalize the positions. 15% of realized profit is distributed to holders every 15 minutes; 85% is retained as working capital.";
+  "Resident provides liquidity to tokenized equity pools on Robinhood Chain and earns a share of the fees paid there. Trading fees on $RES capitalize the positions. 15% of realized profit is distributed to holders; 85% is retained as working capital.";
 
 export const HERO_NOTE =
   "Every parameter below is the value the protocol runs with. Status, custody and risk are documented to the same standard.";
@@ -55,7 +55,7 @@ export const PILLARS = [
   {
     icon: "payout" as const,
     eyebrow: "Direct holder distributions",
-    body: "15% of realized profit, distributed every 15 minutes in USDG. No staking, no claiming.",
+    body: "15% of realized profit, distributed in USDG. No staking, no claiming.",
   },
 ] as const;
 
@@ -160,7 +160,7 @@ export const METHOD = [
     title: "Fee distribution",
     body: [
       "Realized profit splits at a fixed ratio enforced by the contract: 15% to $RES holders, 85% retained to fund new positions.",
-      "The holder share is distributed every 15 minutes in USDG, pro-rata by balance. No staking, no claiming, no signature. Distributions below $300 in total carry to the next cycle rather than spending more in gas than they deliver.",
+      "The holder share is distributed in USDG, pro-rata by balance. No staking, no claiming, no signature. A distribution runs at most every 15 minutes, and only when there is enough for every holder to receive a payment worth more than the gas to send it. Paying a holder six cents costs more than six cents, so a cadence fixed to the clock would spend the distribution on distributing it. What is not paid stays in the ledger and the next one is larger.",
       "The balance owed only increases until it is paid. Losses are absorbed by the retained share; profit already credited to holders is never reversed. Accrual pauses until the loss is recovered, so distributions go quiet in the interim.",
       "The retained 85% is working capital, not a deferred holder claim. It funds positions, absorbs losses, and holders have no claim on it.",
     ],
@@ -183,7 +183,7 @@ export const METHOD = [
     body: [
       "Resident is pre-deployment. The vault contract is complete and covered by a test suite; it has not been externally audited and is not deployed. No vault holds assets, and the positions page displays example data, labelled as such.",
       "The process described above runs, and it signs nothing. It reads chains, ranks pools, and records every position it would have opened. That record is worth having on its own, because it can be checked against what those pools actually paid before any capital is at risk. Two things stand between it and taking a position: a signing service, which does not belong in this code, and the venue-specific component that knows how to open a position on each venue.",
-      "Fee projections start at full capture: the formula credits a position with every unit of a pool's reported flow at its full share, and a pool's flow includes trades at prices the position does not cover. That figure is an upper bound and has never been what measurement returned. The protocol measures the gap instead of assuming it — every sweep is one sample of what the model predicted against what arrived — and prices each pool at what it has actually been paying, its own history first, the desk's average second. Until a pool has been traded there is no measurement, and it is priced at a discount to the ceiling rather than at the ceiling.",
+      "Fee projections start at full capture: the formula credits a position with every unit of a pool's reported flow at its full share, and a pool's flow includes trades at prices the position does not cover. That figure is an upper bound and has never been what measurement returned. The protocol measures the gap instead of assuming it, taking one sample per sweep of what the model predicted against what arrived, and prices each pool at what it has actually been paying, its own history first, the desk's average second. Until a pool has been traded there is no measurement, and it is priced at a discount to the ceiling rather than at the ceiling.",
     ],
   },
 ] as const;
@@ -261,7 +261,7 @@ export const PAYOUT_STEPS = [
   },
   {
     label: "Settlement",
-    body: "Every 15 minutes in USDG, pro-rata by balance, once $300 is owed in total.",
+    body: "In USDG, pro-rata by balance, at most every 15 minutes, and only once there is enough that gas is a small share of what goes out.",
   },
 ] as const;
 

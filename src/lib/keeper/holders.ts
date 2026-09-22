@@ -11,6 +11,8 @@
  * nobody notices: the chain's own record of every movement, replayed.
  */
 
+import { rotate } from "./distribution.ts";
+
 const TRANSFER_TOPIC =
   "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 
@@ -63,6 +65,15 @@ export type SplitOptions = {
   dust?: bigint;
   /** Never build a list longer than this. Gas is finite per transaction. */
   maxRecipients?: number;
+  /**
+   * Which rotation of the holder list to pay, when it does not fit in one call.
+   *
+   * Sorting by balance and taking the top N is the intuitive choice and it is
+   * wrong: balances move slowly, so the same names clear the cap every cycle
+   * and the tail is never paid at all. Rotating reaches every holder within
+   * ceil(total / cap) cycles.
+   */
+  cycle?: number;
 };
 
 /**
@@ -82,26 +93,29 @@ export function splitPro(
   const max = options.maxRecipients ?? 400;
   const excluded = new Set((options.exclude ?? []).map((a) => a.toLowerCase()));
 
-  const eligible = [...balances.entries()]
+  // Ordered by address, not by balance. Balance order looks fairer and is not:
+  // it is stable between cycles, so the same names clear the cap every time
+  // while the tail is never paid at all. Address order is arbitrary, which is
+  // the point — nobody can move themselves up the queue, and rotation below
+  // reaches everyone.
+  const everyone = [...balances.entries()]
     .filter(([address, balance]) => balance > 0n && !excluded.has(address.toLowerCase()))
-    // Largest first, so that when the list has to be truncated the holders who
-    // are dropped are the ones owed least.
-    .sort((a, b) => (b[1] === a[1] ? (a[0] < b[0] ? -1 : 1) : b[1] > a[1] ? 1 : -1));
+    .sort((a, b) => (a[0] < b[0] ? -1 : 1));
 
-  const supply = eligible.reduce((sum, [, balance]) => sum + balance, 0n);
+  // The pro-rata denominator is the WHOLE eligible supply, not this rotation's.
+  // Dividing by the rotation would pay each group as if it were everyone, and
+  // the vault would reject the total on the second call.
+  const supply = everyone.reduce((sum, [, balance]) => sum + balance, 0n);
+  const eligible = rotate(everyone, max, options.cycle ?? 0);
   if (supply === 0n || amount <= 0n) {
     return { allocations: [], total: 0n, skipped: 0 };
   }
 
   const allocations: Allocation[] = [];
   let total = 0n;
-  let skipped = 0;
+  let skipped = everyone.length - eligible.length;
 
   for (const [recipient, balance] of eligible) {
-    if (allocations.length >= max) {
-      skipped++;
-      continue;
-    }
     // Floor division, always. Rounding up here is how the sum exceeds what the
     // vault owes and the whole call reverts.
     const share = (amount * balance) / supply;

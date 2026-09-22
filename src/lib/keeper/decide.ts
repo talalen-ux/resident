@@ -45,6 +45,11 @@ import {
 } from "./sweep.ts";
 import { bestLadder } from "../sim/ladder.ts";
 import { DEFAULT_CONVERT, shouldConvert, type ConvertConfig } from "./swap-v4.ts";
+import {
+  DEFAULT_DISTRIBUTION,
+  planDistribution,
+  type DistributionConfig,
+} from "./distribution.ts";
 import { intentId } from "./registry.ts";
 import type { Intent, KeeperState } from "./types.ts";
 import type { ManualOrder } from "./control.ts";
@@ -116,6 +121,8 @@ export type DecideConfig = {
   rotation: RotationConfig;
   /** When harvested inventory is sold back to the quote asset. */
   convert: ConvertConfig;
+  /** When paying holders is worth the gas it costs. */
+  distribution: DistributionConfig;
   costs: DeskCosts;
   /**
    * Leave this much quote uncommitted, in quote units.
@@ -166,6 +173,7 @@ export const DEFAULT_DECIDE: DecideConfig = {
   retire: DEFAULT_RETIRE,
   rotation: DEFAULT_ROTATION,
   convert: DEFAULT_CONVERT,
+  distribution: DEFAULT_DISTRIBUTION,
   costs: { sweepGas: 2, rebalanceGas: 6, rebalanceSlippage: 0.001 },
   reserve: 250,
   minOpen: 250,
@@ -212,8 +220,12 @@ export type DecideInput = {
      */
     heldIntervals?: number;
   }[];
-  /** Distribute once owed reaches this. */
+  /** Distribute once owed reaches this. Used only when holders is unknown. */
   distributeAt: number;
+  /** How many holders would share a distribution. */
+  holders?: number;
+  /** Quote units per gas unit, so the cost of paying them can be priced. */
+  gasPrice?: number;
   /**
    * The launch's own fees, waiting to be claimed.
    *
@@ -774,7 +786,28 @@ export function decide(
     });
   }
 
-  if (input.owed >= input.distributeAt) {
+  // A flat threshold was wrong once there are many holders. $300 across 5,000
+  // of them is six cents each, and six cents costs more than six cents to send.
+  // The gate is now what a distribution actually costs against what it pays:
+  // enough for every holder to receive something worth receiving, and gas a
+  // small enough share of the total.
+  if (input.holders !== undefined && input.gasPrice !== undefined) {
+    const plan = planDistribution(
+      { owed: input.owed, eligible: input.holders, gasPrice: input.gasPrice },
+      config.distribution,
+    );
+    if (plan.distribute) {
+      intents.push({
+        id: intentId("distribute", now),
+        kind: "distribute",
+        reason: plan.reason,
+      });
+    } else if (input.owed > 0) {
+      passed.push({ subject: "distribute", reason: plan.reason });
+    }
+  } else if (input.owed >= input.distributeAt) {
+    // No holder count or no gas price: fall back to the flat threshold rather
+    // than refuse. A desk that cannot see its holders should still pay them.
     intents.push({
       id: intentId("distribute", now),
       kind: "distribute",

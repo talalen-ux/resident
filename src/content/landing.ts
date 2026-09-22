@@ -23,15 +23,15 @@ export const TOKEN = "$RES";
 
 export const HERO = {
   headline: "$RES buys liquidity. The liquidity pays holders.",
-  sub: "Tokenized equity markets are thin. A five-figure order moves the price. Resident is the capital on the other side of that trade, on Robinhood Chain and Solana. Trading fees on $RES fund every position. 15% of realized profit goes to holders in USDG, every 15 minutes.",
+  sub: "Tokenized equity markets are thin. A five-figure order moves the price. Resident is the capital on the other side of that trade, on Robinhood Chain and Solana. Trading fees on $RES fund every position. 15% of realized profit goes to holders in USDG.",
   cta: "Get $RES",
   secondary: "Read the docs",
 };
 
 export const HERO_STATS = [
   { value: "15%", label: "of realized profit to holders" },
-  { value: "15 min", label: "distribution interval" },
-  { value: "USDG", label: "distribution asset" },
+  { value: "USDG", label: "paid in stablecoin" },
+  { value: "0", label: "claim transactions" },
 ];
 
 export const STEPS_HEADING =
@@ -78,7 +78,7 @@ export const EDGE = [
 
 export const PAYOUT = {
   headline: "Distributions",
-  body: "Realized profit splits at a fixed ratio the contract enforces. 15% to $RES holders, pro-rata in USDG, every 15 minutes. The other 85% stays as working capital: it funds new positions and absorbs losses. Holders have no claim on it.",
+  body: "Realized profit splits at a fixed ratio the contract enforces. 15% to $RES holders, pro-rata in USDG. The other 85% stays as working capital: it funds new positions and absorbs losses. Holders have no claim on it.",
   points: [
     {
       label: "Pro-rata",
@@ -94,7 +94,7 @@ export const PAYOUT = {
     },
     {
       label: "Carries forward",
-      body: "Accrued profit persists in the ledger until it is paid. Distributions run once $300 is owed in total, and the balance never resets.",
+      body: "Accrued profit persists in the ledger until it is paid. A distribution runs when there is enough that gas is a small share of it, so nothing is spent sending amounts smaller than the cost of sending them.",
     },
   ],
 };
@@ -122,7 +122,7 @@ export const FAQS = [
   },
   {
     q: "Why not just open in the highest-fee pool?",
-    a: "Fee income is one side of the ledger. A pool paying 3% a day into a book that moves 20% a day loses money — and a ranking built on fees recommends it every time. We open only when expected fees beat the expected cost of the price moving. Measured at that pool's own volatility, not a house average.",
+    a: "Fee income is one side of the ledger. A pool paying 3% a day into a book that moves 20% a day loses money, and a ranking built on fees recommends it every time. We open only when expected fees beat the expected cost of the price moving. Measured at that pool's own volatility, not a house average.",
   },
 ];
 

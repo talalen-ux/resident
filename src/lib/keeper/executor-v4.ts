@@ -115,6 +115,14 @@ export type V4Context = {
   convert?: ConvertConfig;
   /** Most recipients in one distribute call. The contract loops over them. */
   maxRecipients?: number;
+  /**
+   * Which rotation of the holder list to pay.
+   *
+   * Advances per distribution, so a holder list too long for one call is
+   * covered within ceil(holders / maxRecipients) distributions rather than
+   * having its tail permanently excluded.
+   */
+  distributionCycle?: () => number;
 };
 
 export type RawLog = { address: string; topics: string[]; data: string };
@@ -695,9 +703,12 @@ export function makeV4Executor(ctx: V4Context) {
         );
       }
 
-      const { allocations, total } = splitPro(await ctx.holders(), payable, {
+      const { allocations, total, skipped } = splitPro(await ctx.holders(), payable, {
         exclude: [ctx.vault, ...(ctx.notHolders ?? [])],
-        maxRecipients: ctx.maxRecipients ?? 400,
+        maxRecipients: ctx.maxRecipients ?? 500,
+        // Which slice of the holder list this call pays. Without it the same
+        // names clear the cap every cycle and the tail is never paid at all.
+        cycle: ctx.distributionCycle?.() ?? 0,
       });
       if (allocations.length === 0) {
         throw new Error(
@@ -712,7 +723,9 @@ export function makeV4Executor(ctx: V4Context) {
           allocations.map((a) => a.recipient),
           allocations.map((a) => a.amount),
         ]),
-        description: `distribute to ${allocations.length} holders`,
+        description:
+          `distribute to ${allocations.length} holders` +
+          (skipped ? `, ${skipped} in later rotations` : ""),
       });
       return { txHash: hash, amount: Number(total) };
     }

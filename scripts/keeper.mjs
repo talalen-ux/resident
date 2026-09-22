@@ -210,6 +210,9 @@ const reader = rpcReader(RPC);
  * replaying every transfer on each distribution, which on a token with any
  * history would take longer than the cycle it is meant to serve.
  */
+/** How many distributions have settled, for the holder-list rotation. */
+let distributionsSoFar = 0;
+
 const RES_TOKEN = process.env.RESIDENT_TOKEN;
 const holderIndex = RES_TOKEN
   ? new HolderIndex(
@@ -265,6 +268,9 @@ const execute = VAULT
         .split(",")
         .map((a) => a.trim())
         .filter(Boolean),
+      // Advances once per settled distribution, read from the journal so a
+      // restart does not reset the rotation and re-pay the same names.
+      distributionCycle: () => distributionsSoFar,
       holders: holderIndex
         ? async () => {
             const head = Number(await rpc("eth_blockNumber", []));
@@ -596,6 +602,18 @@ const deps = {
       unbookedProfit,
       unbookedLoss: 0,
       owed: ledger.owed,
+      holders: holderIndex ? holderIndex.size : undefined,
+      // Quote units per gas unit. Read from the node rather than assumed: the
+      // whole point of the gate is that a subsidy can be withdrawn.
+      gasPrice: await (async () => {
+        try {
+          const wei = Number(BigInt(await rpc("eth_gasPrice", [])));
+          const ethUsd = Number(process.env.RESIDENT_ETH_USD ?? 0);
+          return ethUsd > 0 ? (wei / 1e18) * ethUsd : undefined;
+        } catch {
+          return undefined;
+        }
+      })(),
       bridges: {},
       vault: { owner: roles.owner, keeper: roles.keeper },
     };
@@ -773,6 +791,7 @@ async function runOnce() {
     );
   }
   for (const result of report.results) {
+    if (result.ok && result.intent.kind === "distribute") distributionsSoFar++;
     console.log(
       `          ${result.ok ? "→" : "×"} ${result.intent.kind}: ${result.intent.reason}`,
     );
