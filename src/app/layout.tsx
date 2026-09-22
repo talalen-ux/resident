@@ -23,7 +23,7 @@ const robotoMono = Roboto_Mono({
 });
 
 const DESCRIPTION =
-  "A liquidity protocol for tokenized equities on Robinhood Chain. Trading fees on $RES capitalize the protocol's concentrated liquidity positions; 15% of realized profit is distributed to holders every 15 minutes.";
+  "A liquidity protocol for tokenized equities on Robinhood Chain. Trading fees on $RES capitalize the protocol's concentrated liquidity positions; 15% of realized profit is distributed to holders in USDG.";
 
 export const metadata: Metadata = {
   // Without metadataBase, every relative OG URL resolves against localhost and

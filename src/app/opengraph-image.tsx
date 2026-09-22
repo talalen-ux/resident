@@ -76,7 +76,7 @@ export default function Image() {
           <span style={{ opacity: 0.55 }}>·</span>
           <span>Robinhood Chain</span>
           <span style={{ opacity: 0.55 }}>·</span>
-          <span>15% of profit to holders, every 15 minutes</span>
+          <span>15% of profit to holders, in USDG</span>
         </div>
       </div>
     ),

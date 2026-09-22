@@ -354,7 +354,8 @@ export const PARAMETERS = [
 
 export const CADENCES = [
   { label: "Pool evaluation", value: "constantly" },
-  { label: "Distribution cycle", value: "every 15 minutes" },
+  { label: "Distribution cycle", value: "at most every 15 minutes" },
+  { label: "Minimum payout per holder", value: "$5" },
   { label: "Board retention", value: "24 hours" },
   { label: "Analytics window", value: "over 7 days" },
 ] as const;

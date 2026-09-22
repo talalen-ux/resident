@@ -204,3 +204,34 @@ test("the minimum payout the docs publish is the one the keeper enforces", async
     );
   }
 });
+
+test("no page still promises a distribution on a fixed clock", async () => {
+  const { readdirSync, readFileSync, statSync } = await import("node:fs");
+  const { join } = await import("node:path");
+
+  const walk = (dir) =>
+    readdirSync(dir).flatMap((entry) => {
+      const path = join(dir, entry);
+      return statSync(path).isDirectory() ? walk(path) : [path];
+    });
+
+  const offenders = [];
+  for (const path of walk("src").filter((p) => /\.tsx?$/.test(p))) {
+    const text = readFileSync(path, "utf8");
+    // The sweep cadence is genuinely every 15 minutes; the distribution is
+    // not, and "at most" is what makes the difference.
+    for (const [index, line] of text.split("\n").entries()) {
+      if (!/every 15 minutes/.test(line)) continue;
+      if (/at most every 15 minutes/.test(line)) continue;
+      if (/collected|uncollected|swept|sweep/i.test(line)) continue;
+      offenders.push(`${path}:${index + 1}`);
+    }
+  }
+
+  assert.deepEqual(
+    offenders,
+    [],
+    "a fixed distribution cadence is a promise only a gas subsidy can keep:\n  " +
+      offenders.join("\n  "),
+  );
+});

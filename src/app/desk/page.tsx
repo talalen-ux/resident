@@ -79,7 +79,7 @@ export default async function DeskPage() {
           <PositionsTable positions={snap.positions} vault={vault} />
         </Panel>
 
-        <Panel title="Distributions" hint="every 15 minutes, once $300 is owed">
+        <Panel title="Distributions" hint="at most every 15 minutes, once every holder is owed $5">
           <DistributionsTable rows={snap.distributions} vault={vault} />
         </Panel>
 
