@@ -160,7 +160,7 @@ export const METHOD = [
     title: "Fee distribution",
     body: [
       "Realized profit splits at a fixed ratio enforced by the contract: 15% to $RES holders, 85% retained to fund new positions.",
-      "The holder share is distributed in USDG, pro-rata by balance. No staking, no claiming, no signature. A distribution runs at most every 15 minutes, and only when there is enough for every holder to receive a payment worth more than the gas to send it. Paying a holder six cents costs more than six cents, so a cadence fixed to the clock would spend the distribution on distributing it. What is not paid stays in the ledger and the next one is larger.",
+      "The holder share is distributed in USDG, pro-rata by balance. No staking, no claiming, no signature. A distribution runs at most every 15 minutes, and only once every holder is owed at least $5 and gas is under 2% of what goes out. Paying a holder six cents costs more than six cents to send, so a cadence fixed to the clock would spend the distribution on distributing it. Nothing is lost by waiting: what is not paid stays in the ledger and the next distribution is larger. The practical effect is that the interval widens with the holder count rather than the gas bill doing so.",
       "The balance owed only increases until it is paid. Losses are absorbed by the retained share; profit already credited to holders is never reversed. Accrual pauses until the loss is recovered, so distributions go quiet in the interim.",
       "The retained 85% is working capital, not a deferred holder claim. It funds positions, absorbs losses, and holders have no claim on it.",
     ],
@@ -261,7 +261,7 @@ export const PAYOUT_STEPS = [
   },
   {
     label: "Settlement",
-    body: "In USDG, pro-rata by balance, at most every 15 minutes, and only once there is enough that gas is a small share of what goes out.",
+    body: "In USDG, pro-rata by balance, at most every 15 minutes, and only once every holder is owed at least $5.",
   },
 ] as const;
 

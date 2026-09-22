@@ -23,7 +23,7 @@ test("a distribution too small to clear the per-holder floor waits", () => {
   // six cents to send.
   const plan = planDistribution({ owed: 300, eligible: 5_000, gasPrice: ONE_GWEI });
   assert.equal(plan.distribute, false);
-  assert.match(plan.reason, /under the 1 floor/);
+  assert.match(plan.reason, /under the 5 floor/);
   // Waiting must be framed as costless, because it is: the entitlement stays
   // in the vault's ledger.
   assert.match(plan.reason, /nothing is forfeited/);
@@ -36,11 +36,20 @@ test("the same amount to few enough holders goes out", () => {
   assert.equal(plan.amount, 300);
 });
 
+test("at a small holder count the gas share binds before the minimum does", () => {
+  // 50 holders clear the $5 floor at $250 owed, but $5 of gas on $250 is
+  // 2.16% and the ceiling is 2%. It waits a little longer rather than paying
+  // a fee dressed as a distribution.
+  assert.equal(planDistribution({ owed: 250, eligible: 50, gasPrice: ONE_GWEI }).distribute, false);
+  assert.equal(planDistribution({ owed: 270, eligible: 50, gasPrice: ONE_GWEI }).distribute, true);
+});
+
 test("gas above its share of the payout blocks the distribution", () => {
-  // 500 holders at 5 gwei is about $265 of gas. On a $1,000 payout that is
-  // 26%, which is not a payment, it is a fee.
+  // 500 holders at 5 gwei is about $263 of gas. Every holder clears the $5
+  // floor at $2,500 owed, so the floor is not what refuses this: gas is 10.5%
+  // of the payout, which is not a payment, it is a fee.
   const plan = planDistribution(
-    { owed: 1_000, eligible: 500, gasPrice: 5e-9 * 3000 },
+    { owed: 2_500, eligible: 500, gasPrice: 5e-9 * 3000 },
     DEFAULT_DISTRIBUTION,
   );
   assert.equal(plan.distribute, false);
@@ -51,7 +60,7 @@ test("gas above its share of the payout blocks the distribution", () => {
 
 test("the same payout at a subsidised gas price goes out", () => {
   const plan = planDistribution(
-    { owed: 1_000, eligible: 500, gasPrice: 0.05e-9 * 3000 },
+    { owed: 2_500, eligible: 500, gasPrice: 0.05e-9 * 3000 },
     DEFAULT_DISTRIBUTION,
   );
   assert.equal(plan.distribute, true);

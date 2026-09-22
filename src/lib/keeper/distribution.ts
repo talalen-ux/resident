@@ -51,7 +51,11 @@ export type DistributionConfig = {
 };
 
 export const DEFAULT_DISTRIBUTION: DistributionConfig = {
-  minPayment: 1,
+  // Five dollars. High enough that gas is a rounding error on every payment
+  // even without a subsidy, and low enough to be worth receiving. It sets the
+  // real cadence: a distribution waits until holders * 5 is owed, so the
+  // interval widens with the holder count rather than the gas bill doing so.
+  minPayment: 5,
   maxGasShare: 0.02,
   // Measured shape rather than a guess: a CALL plus an SSTORE on the
   // recipient's balance, which is ~51k cold and ~35k once warm.

@@ -184,3 +184,23 @@ test("nothing the keeper imports is a dev dependency", async () => {
     }
   }
 });
+
+test("the minimum payout the docs publish is the one the keeper enforces", async () => {
+  const { DEFAULT_DISTRIBUTION } = await import("../src/lib/keeper/distribution.ts");
+  const docs = await import("../src/content/docs.ts");
+  const landing = await import("../src/content/landing.ts");
+  const copy = JSON.stringify(docs) + JSON.stringify(landing);
+
+  const published = `$${DEFAULT_DISTRIBUTION.minPayment}`;
+  assert.ok(
+    copy.includes(`owed at least ${published}`),
+    `the copy should publish the ${published} minimum the code enforces`,
+  );
+  // And must not still be advertising a figure that was changed in one place.
+  for (const stale of ["$1", "$300 is owed"]) {
+    assert.ok(
+      !copy.includes(`owed at least ${stale}`) && !copy.includes(stale === "$1" ? "at least $1 " : stale),
+      `the copy still mentions ${stale}`,
+    );
+  }
+});

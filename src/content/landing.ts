@@ -94,7 +94,7 @@ export const PAYOUT = {
     },
     {
       label: "Carries forward",
-      body: "Accrued profit persists in the ledger until it is paid. A distribution runs when there is enough that gas is a small share of it, so nothing is spent sending amounts smaller than the cost of sending them.",
+      body: "Accrued profit persists in the ledger until it is paid. A distribution runs once every holder is owed at least $5, so nothing is spent sending amounts smaller than the cost of sending them.",
     },
   ],
 };
