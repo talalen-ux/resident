@@ -1,6 +1,10 @@
 # Going live on Robinhood Chain
 
-Read this once before starting. Every step assumes the one before it.
+**Looking for the running order?** `LAUNCH.md` is the checklist: what to do,
+in sequence, who signs each step and what it costs. This document is the
+reasoning behind it — read it once, then work from the checklist.
+
+Every step assumes the one before it.
 
 There are two addresses in this system and keeping them apart is the whole
 design:

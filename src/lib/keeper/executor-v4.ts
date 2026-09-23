@@ -21,6 +21,7 @@ import { Interface } from "ethers";
 
 import { UNISWAP } from "../chain.ts";
 import { claimCall, escrowOf, sweepCall, verifyClaim } from "./pons.ts";
+import { curveSweepCall } from "./curve.ts";
 import { splitPro } from "./holders.ts";
 import { minOutFor, swapCall, type ConvertConfig } from "./swap-v4.ts";
 import { SELECTORS } from "../desk/selectors.ts";
@@ -731,20 +732,27 @@ export function makeV4Executor(ctx: V4Context) {
     }
 
     if (intent.kind === "claim") {
-      if (!ctx.ponsHook) {
+      // Before graduation the fees are on the bonding curve; after it they are
+      // on the hook. Both expose the same escrow as an immutable public, so
+      // whichever one holds the fees is also the thing that says where to
+      // claim them from. No third address to configure, and nothing to keep in
+      // step with a graduation that happens on its own schedule.
+      const source = intent.curve ?? ctx.ponsHook;
+      if (!source) {
         throw new Error("claim: no Pons hook configured, so there is nothing to sweep");
       }
       const call = (to: string, data: string) => ctx.call(to, data);
-      const escrow = await escrowOf(call, ctx.ponsHook);
+      const escrow = await escrowOf(call, source);
       const before = await balanceOfRaw(call, intent.token, ctx.vault);
 
-      // The sweep moves fees from the hook into the escrow. It reverts for
-      // anyone but Pons's own operator whenever an internal swap is needed, and
-      // that revert is correct rather than a failure of ours: those fees are
-      // theirs to convert. The claim still runs, for whatever is already
-      // credited.
+      // The sweep moves fees into the escrow. It reverts for anyone but Pons's
+      // own operator whenever an internal swap is needed, and that revert is
+      // correct rather than a failure of ours: those fees are theirs to
+      // convert. The claim still runs, for whatever is already credited.
       try {
-        const sweep = sweepCall(ctx.ponsHook, intent.poolId);
+        const sweep = intent.curve
+          ? curveSweepCall(intent.curve)
+          : sweepCall(ctx.ponsHook!, intent.poolId);
         await send(viaVault(ctx.vault, sweep.to, sweep.data, sweep.description));
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);

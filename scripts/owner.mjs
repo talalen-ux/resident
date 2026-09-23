@@ -19,7 +19,8 @@
 
 import { Interface } from "ethers";
 
-import { requireChain } from "../src/lib/chain.ts";
+import { PONS, requireChain } from "../src/lib/chain.ts";
+import { pointFeesCall } from "../src/lib/keeper/launch.ts";
 
 const VAULT = new Interface([
   "function rotateKeeper(address next)",
@@ -75,6 +76,28 @@ const ACTIONS = {
     usage: "withdraw <asset> <to> <amountInMinorUnits>",
     note: "The power that makes this role the one to keep off a server.",
   },
+  // Not a vault call, and not the owner's to sign. The Pons factory lets the
+  // CURRENT creator fee recipient hand the stream on, with no timelock — so at
+  // launch that is the wallet that launched, whoever it is. It lives here
+  // because it belongs to the same job: things you sign by hand, once, that
+  // decide where money goes.
+  "point-launch-fees": {
+    build: (token, chain) =>
+      pointFeesCall(
+        process.env.RESIDENT_PONS_V2_FACTORY ?? PONS.v2Factory,
+        token,
+        chain.vault,
+      ),
+    fn: "transferCreatorFeeRecipient",
+    args: ["address"],
+    usage: "point-launch-fees <resToken>",
+    // Two arguments go on the wire; only the first is typed on the command
+    // line, because the second is the vault and reading it from anywhere but
+    // the configured chain is how you point a fee stream at a stale address.
+    display: ["address", "address"],
+    signer: "the wallet that currently receives the launch's creator fees",
+    note: "Points $RES trading fees at the vault. One way: the vault cannot hand them back.",
+  },
 };
 
 const [name, ...rest] = process.argv.slice(2);
@@ -114,21 +137,34 @@ const parsed = rest.map((value, i) => {
 });
 
 const chain = requireChain();
-const data = VAULT.encodeFunctionData(action.fn, parsed);
+
+// Most actions are the vault's own. One is not, so the destination comes from
+// the action rather than being assumed — an owner call sent to the factory, or
+// a factory call sent to the vault, is a transaction that reverts after the
+// gas, or worse, does not.
+const { to, data, arguments: shown } = action.build
+  ? (() => {
+      const call = action.build(...parsed, chain);
+      return { to: call.to, data: call.data, arguments: [...rest, chain.vault] };
+    })()
+  : { to: chain.vault, data: VAULT.encodeFunctionData(action.fn, parsed), arguments: rest };
+
+const signer = action.signer
+  ? `Signed by ${action.signer}.`
+  : "Signed by the OWNER. If your keeper key is signing this, the two addresses\n  are the same and the separation the vault enforces is not there.";
 
 console.log(`
   ${action.note}
 
   Network   ${chain.name} (chain ${chain.chainId})
-  To        ${chain.vault}
+  To        ${to}
   Value     0
   Data      ${data}
 
   Paste that into your wallet's hex-data field, or open
-  ${chain.explorer}/address/${chain.vault}?tab=write_contract
+  ${chain.explorer}/address/${to}?tab=write_contract
   and call ${action.fn} with:
-${action.args.map((t, i) => `      ${t.padEnd(8)} ${rest[i]}`).join("\n")}
+${shown.map((value, i) => `      ${(action.display ?? action.args)[i].padEnd(8)} ${value}`).join("\n")}
 
-  Signed by the OWNER. If your keeper key is signing this, the two addresses
-  are the same and the separation the vault enforces is not there.
+  ${signer}
 `);

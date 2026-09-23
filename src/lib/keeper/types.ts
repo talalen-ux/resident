@@ -143,6 +143,14 @@ export type Intent =
       kind: "claim";
       /** The launch's pool on the meme hook. */
       poolId: string;
+      /**
+       * The bonding curve, before the launch graduates.
+       *
+       * Set while the launch is still on its curve, where the fees are. Once
+       * it graduates they move to the hook and this goes away, which is why
+       * it is read each tick rather than configured.
+       */
+      curve?: string;
       /** Asset being claimed. The vault's payout asset in practice. */
       token: string;
       /** Quote units the desk expects, for the journal. An upper bound. */

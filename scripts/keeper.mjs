@@ -37,6 +37,8 @@ import {
 import { inventoryAge, seriesFrom } from "../src/lib/keeper/marks.ts";
 import { HolderIndex } from "../src/lib/keeper/holder-index.ts";
 import { claimable as claimableOf, escrowOf, pending as pendingOf } from "../src/lib/keeper/pons.ts";
+import { launchOf } from "../src/lib/keeper/launch.ts";
+import { curveState, curveSweep } from "../src/lib/keeper/curve.ts";
 import { poolId as poolIdOf } from "../src/lib/sim/v4.ts";
 import { bandWidth } from "../src/lib/sim/strategy.ts";
 import { keccak256, solidityPacked, verifyMessage } from "ethers";
@@ -51,7 +53,7 @@ import { makeV4Executor } from "../src/lib/keeper/executor-v4.ts";
 import { makeV4Reconciler } from "../src/lib/keeper/reconcile-v4.ts";
 import { jsonRpc, receiptWaiter } from "../src/lib/keeper/tx.ts";
 import { readV4Pool, rpcReader } from "../src/lib/sim/v4.ts";
-import { MAINNET, TOKENS, UNISWAP } from "../src/lib/chain.ts";
+import { MAINNET, PONS, TOKENS, UNISWAP } from "../src/lib/chain.ts";
 import { DEFAULT_TICK, tick } from "../src/lib/keeper/loop.ts";
 import { loadState } from "../src/lib/keeper/registry.ts";
 import { ledgerFrom, ledgerTotals } from "../src/lib/keeper/ledger.ts";
@@ -239,6 +241,9 @@ const QUOTE = {
   address: process.env.RESIDENT_USDG ?? TOKENS.usdg,
   decimals: Number(process.env.RESIDENT_USDG_DECIMALS ?? 6),
 };
+
+/** Where the launch record lives. Overridable, like every other address. */
+const PONS_FACTORY = process.env.RESIDENT_PONS_V2_FACTORY ?? PONS.v2Factory;
 
 /**
  * With a vault address the desk builds the real thing: real pool state, real
@@ -530,7 +535,67 @@ const deps = {
     let launchFees;
     const hook = process.env.RESIDENT_PONS_HOOK;
     const launchPool = process.env.RESIDENT_RES_POOL_ID;
-    if (hook && launchPool) {
+    const resToken = process.env.RESIDENT_TOKEN;
+
+    // Where the fees are depends on whether the launch has graduated, and
+    // that happens on its own schedule — a volume threshold, not a date. So
+    // it is read every tick off the factory's own record rather than switched
+    // over by hand. A desk whose operator has to notice a graduation is a desk
+    // that stops collecting on the day it gets busy.
+    let launch;
+    if (resToken) {
+      try {
+        launch = await launchOf(call, PONS_FACTORY, resToken);
+        if (!launch.exists) {
+          console.error(`  the Pons factory has no launch for ${resToken}`);
+          launch = undefined;
+        } else if (launch.pairToken.toLowerCase() !== QUOTE.address.toLowerCase()) {
+          // Amounts below would be scaled by the payout asset's decimals,
+          // which is a silent misreport rather than a failure. Say so and
+          // read nothing.
+          console.error(
+            `  the launch quotes in ${launch.pairToken}, not the payout asset ` +
+              `${QUOTE.address} — set RESIDENT_USDG to the launch's quote asset`,
+          );
+          launch = undefined;
+        }
+      } catch (error) {
+        console.error(`  could not read the launch record: ${error.message}`);
+      }
+    }
+
+    // Pre-graduation: the fees are on the curve, and the escrow is readable
+    // off it. This is where day one happens.
+    if (launch && !launch.curve.startsWith("0x0000000000000000000000000000000000000000")) {
+      try {
+        const state = await curveState(call, launch.curve);
+        if (!state.graduated) {
+          const escrow = await escrowOf(call, launch.curve);
+          const credited = await claimableOf(call, escrow, VAULT, QUOTE.address);
+          const decision = curveSweep(launch.curve, state, VAULT, 0n);
+          launchFees = {
+            poolId: launchPool ?? `0x${"0".repeat(64)}`,
+            token: QUOTE.address,
+            claimable: toUnits(credited, QUOTE.decimals),
+            pending: 0,
+            curve: {
+              address: launch.curve,
+              pending: toUnits(state.pending, QUOTE.decimals),
+              sweepable: decision.sweep,
+            },
+          };
+          if (!decision.sweep && state.pending > 0n) {
+            console.log(`  curve fees not ours to sweep: ${decision.reason}`);
+          }
+        }
+      } catch (error) {
+        console.error(`  could not read the bonding curve: ${error.message}`);
+      }
+    }
+
+    // Post-graduation: the hook. Unchanged, and still the steady state — a
+    // launch spends a few days on its curve and the rest of its life here.
+    if (!launchFees && hook && launchPool) {
       try {
         const escrow = await escrowOf(call, hook);
         const [credited, onHook] = await Promise.all([

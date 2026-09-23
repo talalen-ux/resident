@@ -240,6 +240,15 @@ export type DecideInput = {
     claimable: number;
     /** Still on the hook, which a sweep would move. An upper bound. */
     pending: number;
+    /**
+     * The bonding curve, while the launch is still on it.
+     *
+     * Day one happens here, not on the hook: until a launch graduates, every
+     * trade is a curve trade and its fees sit on the curve. A tick that only
+     * looked at the hook would report nothing accrued through the busiest
+     * hours the token will ever have.
+     */
+    curve?: { address: string; pending: number; sweepable: boolean };
   };
   /**
    * Orders an operator has issued since the last tick.
@@ -735,11 +744,23 @@ export function decide(
   // to clear the same gas floor a sweep does, since it is the same shape of
   // decision — a claim worth less than the gas to make it is a loss.
   if (input.launchFees) {
-    const { claimable, pending, poolId, token } = input.launchFees;
-    const total = claimable + pending;
+    const { claimable, pending, poolId, token, curve } = input.launchFees;
+
+    // Curve fees only count toward the decision when the vault may actually
+    // sweep them. While Pons holds that right the fees are still ours and
+    // still arrive, but not on our schedule, so counting them here would put
+    // the desk over the gas floor for a claim that moves nothing.
+    const onCurve = curve?.sweepable ? curve.pending : 0;
+    const total = claimable + pending + onCurve;
     const floor = config.costs.sweepGas * config.sweep.gasMargin;
     if (total <= 0) {
-      passed.push({ subject: "claim", reason: "the launch has accrued nothing" });
+      passed.push({
+        subject: "claim",
+        reason:
+          curve && curve.pending > 0
+            ? `${curve.pending.toFixed(2)} is on the curve, waiting on Pons's sweep`
+            : "the launch has accrued nothing",
+      });
     } else if (total < floor) {
       passed.push({
         subject: "claim",
@@ -751,10 +772,12 @@ export function decide(
         kind: "claim",
         poolId,
         token,
+        ...(curve?.sweepable ? { curve: curve.address } : {}),
         expected: total,
         reason:
           `${claimable.toFixed(2)} claimable` +
-          (pending > 0 ? ` and ${pending.toFixed(2)} pending on the hook` : ""),
+          (pending > 0 ? ` and ${pending.toFixed(2)} pending on the hook` : "") +
+          (onCurve > 0 ? ` and ${onCurve.toFixed(2)} on the curve` : ""),
       });
     }
   }

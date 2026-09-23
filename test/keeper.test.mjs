@@ -744,6 +744,51 @@ test("a launch that has accrued nothing is explained rather than silent", () => 
   assert.ok(decision.passed.some((p) => /accrued nothing/.test(p.reason)));
 });
 
+test("curve fees the vault may sweep count toward the claim", () => {
+  // Day one is a curve, not a pool. A decision that only counted the hook
+  // would pass on the busiest hours the token will ever have.
+  const decision = decide(input({
+    launchFees: {
+      poolId: "0xabc", token: "0xusdg", claimable: 0, pending: 0,
+      curve: { address: "0xcurve", pending: 900, sweepable: true },
+    },
+  }));
+  const claim = decision.intents.find((i) => i.kind === "claim");
+  assert.ok(claim, "900 on the curve is well over the gas floor");
+  assert.equal(claim.curve, "0xcurve");
+  assert.equal(claim.expected, 900);
+  assert.match(claim.reason, /900.00 on the curve/);
+});
+
+test("curve fees Pons must sweep are named, not counted", () => {
+  // They are still ours and they still arrive; what we do not have is the
+  // right to move them now. Counting them would put the desk over the gas
+  // floor for a call that sweeps nothing.
+  const decision = decide(input({
+    launchFees: {
+      poolId: "0xabc", token: "0xusdg", claimable: 0, pending: 0,
+      curve: { address: "0xcurve", pending: 900, sweepable: false },
+    },
+  }));
+  assert.equal(decision.intents.filter((i) => i.kind === "claim").length, 0);
+  assert.ok(decision.passed.some((p) => /waiting on Pons's sweep/.test(p.reason)));
+});
+
+test("a claim that can only reach the escrow does not carry a curve", () => {
+  // Escrow-credited fees are claimed with one call. Attaching a curve the
+  // vault may not sweep adds a transaction that reverts before the claim.
+  const decision = decide(input({
+    launchFees: {
+      poolId: "0xabc", token: "0xusdg", claimable: 600, pending: 0,
+      curve: { address: "0xcurve", pending: 900, sweepable: false },
+    },
+  }));
+  const claim = decision.intents.find((i) => i.kind === "claim");
+  assert.ok(claim);
+  assert.equal(claim.curve, undefined);
+  assert.equal(claim.expected, 600);
+});
+
 test("a claimed launch fee is banked income, so holders accrue against it", () => {
   const claim = {
     id: "c1", kind: "claim", poolId: "0xabc", token: "0xusdg",

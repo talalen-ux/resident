@@ -19,7 +19,10 @@
 import { Interface } from "ethers";
 
 import { compile } from "../test/harness.mjs";
-import { UNISWAP, requireChain } from "../src/lib/chain.ts";
+import { PONS, UNISWAP, requireChain } from "../src/lib/chain.ts";
+import { escrowOf } from "../src/lib/keeper/pons.ts";
+import { feesPointAt, launchOf } from "../src/lib/keeper/launch.ts";
+import { curveState, curveSweep } from "../src/lib/keeper/curve.ts";
 
 const ok = (m) => `  \x1b[32m✓\x1b[0m ${m}`;
 const bad = (m) => `  \x1b[31m✗\x1b[0m ${m}`;
@@ -201,6 +204,102 @@ for (const [label, address] of [
     else fail(`${label} ${address} is NOT allowlisted — every mint will revert`);
   } catch (err) {
     fail(`could not read ${label}: ${err.message}`);
+  }
+}
+
+// The router is a different kind of missing. Without it the desk still opens
+// positions and still collects fees; what it cannot do is sell the tokens
+// those fees arrive in back to USDG. So it accumulates inventory it did not
+// choose, carrying price risk and earning nothing, and nothing reverts to say
+// so. A warning, not a failure, because the desk does work without it — but
+// the treasury slowly stops being a treasury.
+{
+  const router = process.env.RESIDENT_UNIVERSAL_ROUTER ?? UNISWAP.universalRouter;
+  try {
+    const allowed = await read("isVenue", [router]);
+    if (allowed) console.log(ok(`UniversalRouter ${router} allowlisted`));
+    else flag(`UniversalRouter ${router} is not allowlisted — harvested fees can never be sold back to USDG`);
+  } catch (err) {
+    fail(`could not read UniversalRouter: ${err.message}`);
+  }
+}
+
+// --- the launch's own fees --------------------------------------------------
+//
+// Two separate things have to be true for a single dollar of $RES trading fees
+// to reach the vault, and neither of them reverts when it is wrong.
+//
+//   1. The launch's creator fee recipient must BE the vault. If it is not, the
+//      fees are real, they are being paid, and they are going somewhere else.
+//   2. The hook and its escrow must be allowlisted, or the claim the keeper
+//      builds every tick reverts on the vault's own guard.
+//
+// Both are checked only when configured. A desk that has not launched yet is
+// not misconfigured; it is early.
+console.log("\nThe launch:");
+const ponsHook = process.env.RESIDENT_PONS_HOOK;
+const resToken = process.env.RESIDENT_TOKEN;
+
+if (!resToken) {
+  flag("RESIDENT_TOKEN not set — cannot confirm the launch pays this vault");
+} else {
+  try {
+    const record = await launchOf(
+      (to, data) => rpc("eth_call", [{ to, data }, "latest"]),
+      process.env.RESIDENT_PONS_V2_FACTORY ?? PONS.v2Factory,
+      resToken,
+    );
+    if (!record.exists) {
+      fail(`the Pons factory has no launch for ${resToken} — wrong token address, or it was not launched on Pons V2`);
+    } else if (feesPointAt(record, config.vault)) {
+      console.log(ok(`creator fees pay the vault (${record.phase}, ${record.creatorTaxBps} bps creator tax)`));
+
+      // Before graduation the fees are on the curve, and pointing them at the
+      // vault also made the vault the only address allowed to sweep — unless
+      // a buyback slice is earmarked, which hands that right to Pons. Neither
+      // loses money. One means the keeper sweeps on its own schedule; the
+      // other means it waits on theirs, which on a launch's first day is the
+      // difference between compounding today and compounding whenever.
+      if (record.phase === "not graduated") {
+        const state = await curveState(
+          (to, data) => rpc("eth_call", [{ to, data }, "latest"]),
+          record.curve,
+        );
+        const decision = curveSweep(record.curve, state, config.vault, 0n);
+        if (decision.sweep) {
+          console.log(ok(`the vault may sweep its own curve fees (${state.pending} pending)`));
+        } else {
+          flag(`curve fees are not the vault's to sweep: ${decision.reason}`);
+        }
+      }
+    } else {
+      fail(
+        `creator fees pay ${record.creatorFeeRecipient}, NOT the vault — ` +
+          "every fee this token earns is going elsewhere",
+      );
+      console.log(`      fix: npm run owner -- point-launch-fees ${resToken}`);
+      console.log("      sign it from the launch wallet, not the owner wallet");
+    }
+  } catch (err) {
+    fail(`could not read the launch record: ${err.message}`);
+  }
+}
+
+if (!ponsHook) {
+  flag("RESIDENT_PONS_HOOK not set — the keeper will not claim launch fees");
+} else {
+  try {
+    const escrow = await escrowOf(
+      (to, data) => rpc("eth_call", [{ to, data }, "latest"]),
+      ponsHook,
+    );
+    for (const [label, address] of [["Pons hook", ponsHook], ["fee escrow", escrow]]) {
+      const allowed = await read("isVenue", [address]);
+      if (allowed) console.log(ok(`${label} ${address} allowlisted`));
+      else fail(`${label} ${address} is NOT allowlisted — the claim will revert every tick`);
+    }
+  } catch (err) {
+    fail(`could not read the hook's escrow: ${err.message}`);
   }
 }
 
