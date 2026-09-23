@@ -542,8 +542,20 @@ const deps = {
     // it is read every tick off the factory's own record rather than switched
     // over by hand. A desk whose operator has to notice a graduation is a desk
     // that stops collecting on the day it gets busy.
+    // The launchpad integration is opt-in, and off by default.
+    //
+    // The vault takes fees as ordinary ERC20 balance, so any launchpad that
+    // can pay a fee recipient already works with no code at all: the money
+    // lands, `idleCapital` sees it, and the next tick deploys it like any
+    // other capital. What the modules below add is narrower — the ability to
+    // CLAIM fees a launchpad holds in escrow rather than pushing.
+    //
+    // So this is named rather than inferred from RESIDENT_TOKEN, which is also
+    // what the holder list is built from. A token launched somewhere else
+    // would otherwise have its record looked up on a factory that never
+    // launched it, and log an error every tick about a launch that is fine.
     let launch;
-    if (resToken) {
+    if (resToken && process.env.RESIDENT_LAUNCHPAD === "pons") {
       try {
         launch = await launchOf(call, PONS_FACTORY, resToken);
         if (!launch.exists) {

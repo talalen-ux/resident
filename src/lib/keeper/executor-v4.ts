@@ -24,6 +24,7 @@ import { claimCall, escrowOf, sweepCall, verifyClaim } from "./pons.ts";
 import { curveSweepCall } from "./curve.ts";
 import { splitPro } from "./holders.ts";
 import { minOutFor, swapCall, type ConvertConfig } from "./swap-v4.ts";
+import { bandQuoteDepth, shortfall, splitForRange } from "./entry.ts";
 import { SELECTORS } from "../desk/selectors.ts";
 import { POSITION_SELECTORS } from "./position-reader.ts";
 import type { PoolKey } from "../sim/v4.ts";
@@ -108,6 +109,14 @@ export type V4Context = {
   holders?: () => Promise<Map<string, bigint>>;
   /** Addresses that hold the token but are not holders: the vault, a locker. */
   notHolders?: string[];
+  /**
+   * Slack on the stock bought before a two-sided mint, in basis points.
+   *
+   * Zero is the wrong default: the mint re-derives its amounts against the
+   * post-swap pool, and landing exactly on the pre-swap figure is not
+   * something integer arithmetic promises.
+   */
+  entryBufferBps?: number;
   /** The asset distributions are paid in, and the asset inventory converts to. */
   payoutAsset?: string;
   /** Where a conversion swap is routed. Defaults to the chain constant. */
@@ -350,6 +359,10 @@ export function makeV4Executor(ctx: V4Context) {
   const pm = ctx.positionManager ?? UNISWAP.v4PositionManager;
   const slippage = ctx.slippage ?? 0.01;
   const ttl = ctx.deadlineSeconds ?? 120;
+  // Covers the gap between the split computed before the entry buy and the
+  // mint re-sized after it. A few raw units short is a smaller position than
+  // the capital paid for; a few over is dust the ladder works off.
+  const entryBuffer = ctx.entryBufferBps ?? 50;
 
   let dryRunTokenId = 0n;
 
@@ -403,20 +416,114 @@ export function makeV4Executor(ctx: V4Context) {
 
       // Read fresh. The band is centred on the price at submission, not on the
       // price the tick was decided from.
-      const state = await ctx.readPool(found.key);
+      let state = await ctx.readPool(found.key);
       const isLadder = intent.venueKind === "ladder";
-      const { tickLower, tickUpper } = isLadder
+      let { tickLower, tickUpper } = isLadder
         ? ladderTicks(state, intent.gap ?? 0.01, intent.width ?? 0.1)
         : bandTicks(state, intent.halfWidth);
 
       const quoteIsToken1 = !state.stockIsToken1;
       const quoteToken = quoteIsToken1 ? found.key.currency1 : found.key.currency0;
+      const stockToken = quoteIsToken1 ? found.key.currency0 : found.key.currency1;
       const quoteDecimals = quoteIsToken1
         ? state.token1.decimals
         : state.token0.decimals;
+      const stockDecimals = quoteIsToken1
+        ? state.token0.decimals
+        : state.token1.decimals;
       const quoteAmount = BigInt(
         Math.floor(intent.capital * 10 ** quoteDecimals),
       );
+
+      // Buy the other side of the range before minting into it.
+      //
+      // A range that straddles spot is funded with both tokens, and the
+      // treasury holds one. Without this the mint is sized against a stock
+      // balance of zero, liquidityForAmounts takes the smaller side, and every
+      // open the desk decides on fails as "buys no liquidity at this range" —
+      // not on chain, where it could be read, but before anything is sent.
+      //
+      // A ladder needs none of it: it rests quote on one side of the price and
+      // is single-sided by construction.
+      if (!isLadder) {
+        const held = await ctx.balanceOf(stockToken);
+        const split = splitForRange({
+          sqrtPriceX96: state.sqrtPriceX96,
+          tickLower,
+          tickUpper,
+          stockIsToken1: state.stockIsToken1,
+          quoteAmount,
+        });
+        const missing = shortfall(split.stockNeeded, held, entryBuffer);
+
+        if (missing > 0n && split.sell > 0n) {
+          // Never spend more quote than the vault holds. The router pulls what
+          // the plan says and reverts after the gas is spent.
+          const quoteHeld = await ctx.balanceOf(quoteToken);
+          const spend = split.sell < quoteHeld ? split.sell : quoteHeld;
+          if (spend <= 0n) {
+            throw new Error(
+              `${intent.pool}: the vault holds no ${quoteToken} to buy the other side of the range with`,
+            );
+          }
+
+          // The buy happens in the pool we are about to provide liquidity to,
+          // so it moves the price it is priced at. Bounded twice: by the share
+          // of in-band depth the convert config allows, which is what stops a
+          // thin pool being walked up to fill our own order, and by a minimum
+          // out, which is what stops the fill being taken at any price.
+          const impact = ctx.convert?.maxImpact ?? 0.2;
+          const depth = bandQuoteDepth(state, tickLower, tickUpper);
+          const maxSpend = (depth * BigInt(Math.round(impact * 10_000))) / 10_000n;
+          // Refused, never sized down. A smaller position is one the desk did
+          // not decide on, opened for a reason the decision never saw; sending
+          // it back to the board is the honest answer. Zero depth is the same
+          // refusal and not an exemption from it: a pool that can absorb
+          // nothing is the strongest case for not trading into it.
+          if (spend > maxSpend) {
+            throw new Error(
+              `${intent.pool}: entering would take ${spend} of ${depth} in-band depth, ` +
+                `over the ${(impact * 100).toFixed(0)}% bound. Size down or pick another pool.`,
+            );
+          }
+
+          const stockPerQuote = quoteIsToken1
+            ? 1 / spotPrice(state)
+            : spotPrice(state);
+          const minOut = minOutFor(
+            Number(spend) / 10 ** quoteDecimals,
+            stockPerQuote,
+            stockDecimals,
+            ctx.convert,
+          );
+
+          const router = ctx.universalRouter ?? UNISWAP.universalRouter;
+          for (const approval of approvalsFor(
+            { vault: ctx.vault, permit2: ctx.permit2 ?? UNISWAP.permit2, positionManager: router },
+            quoteToken,
+            spend,
+            ctx.now() + ttl,
+          )) {
+            await send(approval);
+          }
+
+          const buy = swapCall({
+            key: found.key,
+            zeroForOne: !quoteIsToken1,
+            amountIn: spend,
+            minOut,
+            deadline: ctx.now() + ttl,
+          });
+          await send(viaVault(ctx.vault, buy.to, buy.data, buy.description));
+
+          // Re-read rather than predict. The swap moved the price, which moves
+          // both the band's centre and the amounts the mint needs; sizing
+          // against the pre-swap state would mint off-centre by exactly the
+          // impact we just paid.
+          state = await ctx.readPool(found.key);
+          ({ tickLower, tickUpper } = bandTicks(state, intent.halfWidth));
+        }
+      }
 
       const [balance0, balance1] = await Promise.all([
         ctx.balanceOf(found.key.currency0),
@@ -440,13 +547,27 @@ export function makeV4Executor(ctx: V4Context) {
         );
       }
 
-      for (const approval of approvalsFor(
-        { vault: ctx.vault, permit2: ctx.permit2, positionManager: pm },
-        quoteToken,
-        withSlippage(quoteAmount, slippage),
-        ctx.now() + ttl,
-      )) {
-        await send(approval);
+      // Both sides, not just the quote.
+      //
+      // SETTLE_PAIR settles both currencies, so the position manager pulls
+      // both through Permit2. Approving one leaves the mint to revert on the
+      // other after the gas is spent, and the failure reads as a bad encoding
+      // rather than a missing approval. Sides the range does not use are
+      // skipped: an approval for zero is a transaction that buys nothing.
+      const approvals = [
+        { token: found.key.currency0, amount: sized.amount0 },
+        { token: found.key.currency1, amount: sized.amount1 },
+      ].filter(({ amount }) => amount > 0n);
+
+      for (const { token, amount } of approvals) {
+        for (const approval of approvalsFor(
+          { vault: ctx.vault, permit2: ctx.permit2, positionManager: pm },
+          token,
+          withSlippage(amount, slippage),
+          ctx.now() + ttl,
+        )) {
+          await send(approval);
+        }
       }
 
       const { hash, logs } = await send(

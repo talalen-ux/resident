@@ -262,7 +262,11 @@ test("a mint is capped by what the vault actually holds", () => {
     balance0: 0n, balance1: 10n ** 12n,
   });
   assert.ok(full.liquidity > 0n);
-  assert.ok(broke.liquidity < full.liquidity, "no token0, so a smaller position");
+  // Not merely smaller: exactly zero. A range straddling spot is funded from
+  // both sides and liquidityForAmounts takes the lesser, so a treasury holding
+  // only the quote mints nothing at all. That is why an entry buys the other
+  // side first, and why asserting "smaller" here hid the problem for so long.
+  assert.equal(broke.liquidity, 0n, "no token0 in range means no position");
 });
 
 /* ---------------------------------------------------------------- the flow */
@@ -304,13 +308,103 @@ const openIntent = {
   capital: 10_000, lower: 0, upper: 0, halfWidth: 0.1, reason: "test",
 };
 
-test("opening approves twice, mints, and reports the id from the log", async () => {
+test("opening approves both sides, mints, and reports the id from the log", async () => {
+  // Four approvals, not two. SETTLE_PAIR settles both currencies, so the
+  // position manager pulls both through Permit2: each token needs the vault's
+  // ERC20 approval to Permit2 and Permit2's allowance to the position manager.
+  // Approving the quote alone leaves the mint to revert on the other side
+  // after the gas is spent, reading as a bad encoding rather than a missing
+  // approval.
   const { ctx, sent } = fakeChain();
   const result = await makeV4Executor(ctx)(openIntent);
-  assert.equal(sent.length, 3, "two approvals then the mint");
+  assert.equal(sent.length, 5, "two approvals per side, then the mint");
   assert.equal(result.handle, "91");
   assert.ok(result.txHash);
-  assert.match(sent[2].description, /^mint AMC\/USDG/);
+  assert.match(sent[4].description, /^mint AMC\/USDG/);
+
+  const approved = sent.slice(0, 4).map((c) => c.description);
+  assert.ok(approved.some((d) => d.includes(KEY.currency0.toLowerCase())), "token0 approved");
+  assert.ok(approved.some((d) => d.includes(KEY.currency1.toLowerCase())), "token1 approved");
+});
+
+/** Deep enough that a 10,000 entry is a small share of the band. */
+const DEEP = () =>
+  buildPool({
+    price: 5,
+    liquidity: 20_000_000n * 10n ** 12n,
+    fee: 3000,
+    token0: { symbol: "AMC", decimals: 18 },
+    token1: { symbol: "USDG", decimals: 6 },
+  });
+
+/**
+ * A funded desk's actual starting state: quote and nothing else — until the
+ * entry buy lands, after which it holds both. The fake has to model that
+ * consequence, or the mint is sized against balances the swap already changed.
+ */
+const quoteOnly = (sent) => async (token) => {
+  if (token.toLowerCase() === KEY.currency1.toLowerCase()) return 10n ** 12n;
+  return sent.some((c) => /^sell /.test(c.description ?? "")) ? 10n ** 24n : 0n;
+};
+
+test("a quote-only treasury buys the other side before it mints", async () => {
+  // The state a funded desk actually starts in: USDG and nothing else. Without
+  // the entry buy the mint is sized against a stock balance of zero and every
+  // open fails as "buys no liquidity at this range".
+  const deep = DEEP();
+  const log = [];
+  const { ctx, sent } = fakeChain({
+    poolFor: () => ({ key: KEY, state: deep }),
+    readPool: async () => deep,
+    balanceOf: quoteOnly(log),
+  });
+  ctx.signer.send = async (call) => {
+    log.push(call); sent.push(call);
+    return { hash: "0x" + sent.length.toString(16).padStart(64, "0") };
+  };
+  await makeV4Executor(ctx)(openIntent);
+
+  const swap = sent.findIndex((c) => /^sell /.test(c.description ?? ""));
+  const mint = sent.findIndex((c) => /^mint /.test(c.description ?? ""));
+  assert.ok(swap >= 0, "the stock side has to be bought");
+  assert.ok(mint > swap, "and bought before the mint, not after");
+});
+
+test("the entry buy carries a minimum out", async () => {
+  // It executes in the pool it is about to mint into, so it moves the price it
+  // is priced at. Unbounded, a thin pool takes the whole entry.
+  const deep = DEEP();
+  const log = [];
+  const { ctx, sent } = fakeChain({
+    poolFor: () => ({ key: KEY, state: deep }),
+    readPool: async () => deep,
+    balanceOf: quoteOnly(log),
+  });
+  ctx.signer.send = async (call) => {
+    log.push(call); sent.push(call);
+    return { hash: "0x" + sent.length.toString(16).padStart(64, "0") };
+  };
+  await makeV4Executor(ctx)(openIntent);
+  const swap = sent.find((c) => /^sell /.test(c.description ?? ""));
+  assert.match(swap.description, /for at least [1-9]/, "a floor above zero");
+});
+
+test("an entry that would move the pool too far is refused, not sized down", async () => {
+  // Sizing down would open a position smaller than the desk decided on, for a
+  // reason the decision never saw. Refusing sends it back to the board.
+  const thin = buildPool({
+    price: 5,
+    liquidity: 1n,
+    fee: 3000,
+    token0: { symbol: "AMC", decimals: 18 },
+    token1: { symbol: "USDG", decimals: 6 },
+  });
+  const { ctx } = fakeChain({
+    poolFor: () => ({ key: KEY, state: thin }),
+    readPool: async () => thin,
+    balanceOf: quoteOnly([]),
+  });
+  await assert.rejects(makeV4Executor(ctx)(openIntent), /in-band depth/);
 });
 
 test("a lost receipt is unresolved, never a failure", async () => {
@@ -367,7 +461,9 @@ test("a dry-run signer still produces the calls, and moves nothing", async () =>
   const signer = new DryRunSigner();
   const { ctx } = fakeChain({ signer });
   await makeV4Executor(ctx)(openIntent);
-  assert.equal(signer.calls.length, 3);
+  // Four approvals and the mint: both sides of the pair are settled, so both
+  // need the vault's approval to Permit2 and Permit2's to the position manager.
+  assert.equal(signer.calls.length, 5);
   assert.equal(signer.dryRun, true);
 });
 

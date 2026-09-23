@@ -81,10 +81,16 @@ npm run owner -- set-venue 0x58daec3116aae6d93017baaea7749052e8a04fa7 true  # v4
 npm run owner -- set-venue 0x8876789976decbfcbbbe364623c63652db8c0904 true  # UniversalRouter
 ```
 
-The first two are not optional: a v4 mint pulls tokens through Permit2, so
-missing either reverts every mint after spending the gas. The third is how
-harvested fees get sold back to USDG — without it the treasury slowly turns
-into a bag of the tokens it has been making markets in.
+All three are required, for different reasons.
+
+A v4 mint pulls tokens through Permit2, so missing either of the first two
+reverts every mint after spending the gas.
+
+The router is needed on both legs. A range that straddles the current price is
+funded with **both** tokens and the treasury holds one, so every open buys the
+other side through the router before it mints — without it no position opens.
+It is also how harvested fees get sold back to USDG, without which the treasury
+slowly turns into a bag of the tokens it has been making markets in.
 
 Reversible: pass `false` to undo any of them.
 
@@ -157,14 +163,24 @@ not been audited.**
 
 # Part three — launch day
 
-## 10. Launch $RES on Pons
+## 10. Launch $RES
+
+**The vault does not care which launchpad.** It takes fees as ordinary ERC20
+balance: the money lands, the keeper sees it as idle capital, and the next tick
+deploys it like any other capital. No contract knows the name of a launchpad,
+and none needs to. If you launch somewhere other than Pons, set the fee
+recipient to the vault and skip straight to step 12.
+
+The rest of this step is the Pons-specific case, where fees are held in escrow
+until claimed rather than pushed to the recipient. Two configuration choices
+matter there, and both are frozen at launch.
 
 Two configuration choices matter, and both are frozen at launch.
 
-**Creator fee recipient → the vault.** This is the whole design. If you can set
-it at launch, set it to the vault address from step 3. If the launch UI will
-not let you, launch with your own wallet and fix it in step 11 — that path
-works and has no timelock.
+**Fee recipient → the vault.** This is the whole design, and it is the one
+thing that must be right on every launchpad. Set it to the vault address from
+step 3. On Pons, if the launch UI will not let you set it up front, launch with
+your own wallet and fix it in step 11 — that path works and has no timelock.
 
 **Buyback-and-lock → off, if you want the keeper to sweep on its own
 schedule.** With buyback enabled, part of every creator fee is earmarked for an
@@ -204,8 +220,16 @@ redirects the money and gives the keeper the right to collect it.
 | `RESIDENT_TOKEN` | the $RES token address |
 | `RESIDENT_TOKEN_BLOCK` | the block it was deployed at |
 | `RESIDENT_NOT_HOLDERS` | comma-separated: the curve, the locker, anything holding $RES that is not a holder to be paid |
+| `RESIDENT_LAUNCHPAD` | `pons` — **only** if you launched on Pons. Leave unset otherwise. |
 
-`RESIDENT_TOKEN` alone is enough to start collecting. The keeper reads the
+`RESIDENT_TOKEN` is what the holder list is built from, and is needed wherever
+you launched. `RESIDENT_LAUNCHPAD` is separate and opt-in: it turns on the
+escrow-claiming path, which only Pons needs. Set it for a token launched
+elsewhere and the keeper looks the launch up on a factory that never launched
+it, and complains every tick about something that is fine.
+
+On Pons, `RESIDENT_TOKEN` plus `RESIDENT_LAUNCHPAD=pons` is enough to start
+collecting. The keeper reads the
 launch record each tick and works out where the fees are — the bonding curve
 before graduation, the hook after it. **You do not have to do anything on
 graduation day.** That was deliberate: a desk whose operator has to notice a
@@ -217,7 +241,7 @@ holder list scans from genesis.
 ## 13. Preflight again
 
 ```bash
-RESIDENT_TOKEN=0xRES npm run preflight
+RESIDENT_TOKEN=0xRES RESIDENT_LAUNCHPAD=pons npm run preflight
 ```
 
 Now the launch section has something to check. What you want to see:

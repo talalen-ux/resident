@@ -36,6 +36,7 @@ const modules = [
   "../src/lib/keeper/pons.ts",
   "../src/lib/keeper/launch.ts",
   "../src/lib/keeper/curve.ts",
+  "../src/lib/keeper/entry.ts",
   "../src/lib/keeper/swap-v4.ts",
   "../src/lib/keeper/holders.ts",
   "../src/lib/keeper/distribution.ts",

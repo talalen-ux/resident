@@ -207,18 +207,22 @@ for (const [label, address] of [
   }
 }
 
-// The router is a different kind of missing. Without it the desk still opens
-// positions and still collects fees; what it cannot do is sell the tokens
-// those fees arrive in back to USDG. So it accumulates inventory it did not
-// choose, carrying price risk and earning nothing, and nothing reverts to say
-// so. A warning, not a failure, because the desk does work without it — but
-// the treasury slowly stops being a treasury.
+// The router is needed on both legs of the desk's life, which is why it is a
+// failure rather than a warning.
+//
+// Entering: a range that straddles spot is funded with both tokens, and the
+// treasury holds one. Every two-sided open buys the other side through this
+// router first, so without it no position opens at all.
+//
+// Exiting: fees arrive as whatever the pool charges them in. Without the
+// router they are never sold back, and the treasury quietly becomes a
+// portfolio of the tokens it has been making markets in.
 {
   const router = process.env.RESIDENT_UNIVERSAL_ROUTER ?? UNISWAP.universalRouter;
   try {
     const allowed = await read("isVenue", [router]);
     if (allowed) console.log(ok(`UniversalRouter ${router} allowlisted`));
-    else flag(`UniversalRouter ${router} is not allowlisted — harvested fees can never be sold back to USDG`);
+    else fail(`UniversalRouter ${router} is NOT allowlisted — no two-sided position can be opened`);
   } catch (err) {
     fail(`could not read UniversalRouter: ${err.message}`);
   }
@@ -240,7 +244,12 @@ console.log("\nThe launch:");
 const ponsHook = process.env.RESIDENT_PONS_HOOK;
 const resToken = process.env.RESIDENT_TOKEN;
 
-if (!resToken) {
+if (process.env.RESIDENT_LAUNCHPAD !== "pons") {
+  // Not a fault. The vault takes fees as ordinary balance, so a launch
+  // anywhere that can pay a fee recipient needs nothing here; these checks are
+  // for the narrower case of fees held in escrow until claimed.
+  flag("RESIDENT_LAUNCHPAD is not set to pons — launch fees are expected to arrive as plain balance");
+} else if (!resToken) {
   flag("RESIDENT_TOKEN not set — cannot confirm the launch pays this vault");
 } else {
   try {
