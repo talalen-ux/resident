@@ -22,6 +22,8 @@ export type ConfigInput = {
   chainId?: number;
   mainnetChainId: number;
   controlWallet?: string;
+  /** RESIDENT_PAPER, the paper-book deposit, when one is set. */
+  paper?: number;
   launchHook?: string;
   launchPoolId?: string;
 };
@@ -88,6 +90,31 @@ export function checkConfig(input: ConfigInput): ConfigVerdict {
         "would fail. Set RESIDENT_ALLOW_MAINNET=1 to say that is intended, or " +
         "remove the key and run with RESIDENT_KEEPER_ADDRESS instead, which " +
         "proves the calls against the chain without signing them.",
+    );
+  }
+
+  // A paper book and a real vault at the same time.
+  //
+  // The paper branch only runs when there is no vault, so with one set the
+  // deposit is silently ignored and the desk trades the vault. That is the
+  // most dangerous shape of misconfiguration this file exists to catch: the
+  // operator believes nothing is at stake, the variable is right there in the
+  // list confirming it, and the keeper is using real money. Worse with a key,
+  // because then it signs.
+  //
+  // Refused rather than resolved in either direction. Which one was meant is
+  // not inferable from the variables, and guessing wrong costs either a day of
+  // paper results or the book.
+  if (input.paper && input.vault) {
+    problems.push(
+      `RESIDENT_PAPER is ${input.paper} and RESIDENT_VAULT is set. Those are ` +
+        "two different desks and only the vault would run: the paper book is " +
+        "ignored whenever a vault exists, so this container would trade real " +
+        "balances while the variable list says it is on paper" +
+        (input.key ? ", and it would sign them" : "") +
+        ". Remove RESIDENT_PAPER to trade the vault, or remove RESIDENT_VAULT " +
+        (input.key ? "and RESIDENT_KEEPER_KEY " : "") +
+        "to keep paper trading.",
     );
   }
 

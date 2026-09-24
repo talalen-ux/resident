@@ -137,6 +137,7 @@ const configVerdict = checkConfig({
   chainId: reportedChainId,
   mainnetChainId: MAINNET.chainId,
   controlWallet: process.env.RESIDENT_CONTROL_WALLET,
+  paper: Number(process.env.RESIDENT_PAPER ?? 0),
   launchHook: process.env.RESIDENT_LAUNCH_HOOK,
   launchPoolId: process.env.RESIDENT_RES_POOL_ID,
 });

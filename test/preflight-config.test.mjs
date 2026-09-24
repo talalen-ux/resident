@@ -137,3 +137,32 @@ test("a websocket URL is refused too, since the keeper posts JSON-RPC over HTTP"
   const verdict = checkConfig({ ...base, rpcUrl: "wss://rpc.example.com" });
   assert.ok(verdict.problems.some((p) => /no scheme/.test(p)));
 });
+
+test("a paper book beside a real vault is refused, not silently ignored", () => {
+  // The paper branch only runs with no vault, so the deposit is dropped and
+  // the desk trades the vault. The operator reads RESIDENT_PAPER in the list
+  // and believes nothing is at stake.
+  const verdict = checkConfig({ ...base, vault: "0xvault", paper: 10_000 });
+  assert.equal(verdict.ok, false);
+  assert.ok(verdict.problems.some((p) => /RESIDENT_PAPER is 10000/.test(p)));
+});
+
+test("paper plus a key says that it would also sign", () => {
+  const verdict = checkConfig({
+    ...base, vault: "0xvault", key: "0xkey", paper: 10_000,
+    chainId: 4663, mainnetChainId: 4663, allowMainnet: true,
+  });
+  assert.ok(verdict.problems.some((p) => /and it would sign them/.test(p)));
+});
+
+test("a paper book with no vault is the intended shape", () => {
+  const verdict = checkConfig({ ...base, paper: 10_000 });
+  assert.equal(verdict.ok, true);
+  assert.equal(verdict.mode, "journal");
+});
+
+test("no paper deposit is not a paper book", () => {
+  // Number(undefined ?? 0) is 0, which must not read as "paper mode on".
+  const verdict = checkConfig({ ...base, vault: "0xvault", paper: 0 });
+  assert.equal(verdict.ok, true);
+});
