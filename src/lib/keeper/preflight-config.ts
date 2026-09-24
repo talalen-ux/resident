@@ -22,8 +22,8 @@ export type ConfigInput = {
   chainId?: number;
   mainnetChainId: number;
   controlWallet?: string;
-  ponsHook?: string;
-  ponsPoolId?: string;
+  launchHook?: string;
+  launchPoolId?: string;
 };
 
 export type ConfigVerdict = {
@@ -117,9 +117,9 @@ export function checkConfig(input: ConfigInput): ConfigVerdict {
 
   // Half a launch is worse than none: the keeper would read one of the two and
   // silently never claim.
-  if (Boolean(input.ponsHook) !== Boolean(input.ponsPoolId)) {
+  if (Boolean(input.launchHook) !== Boolean(input.launchPoolId)) {
     problems.push(
-      "RESIDENT_PONS_HOOK and RESIDENT_RES_POOL_ID must be set together. With " +
+      "RESIDENT_LAUNCH_HOOK and RESIDENT_RES_POOL_ID must be set together. With " +
         "only one the keeper cannot find the launch's fees and would never " +
         "claim them, without ever saying so.",
     );

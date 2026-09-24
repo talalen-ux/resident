@@ -747,7 +747,7 @@ export function decide(
     const { claimable, pending, poolId, token, curve } = input.launchFees;
 
     // Curve fees only count toward the decision when the vault may actually
-    // sweep them. While Pons holds that right the fees are still ours and
+    // sweep them. While the protocol holds that right the fees are still ours and
     // still arrive, but not on our schedule, so counting them here would put
     // the desk over the gas floor for a claim that moves nothing.
     const onCurve = curve?.sweepable ? curve.pending : 0;
@@ -758,7 +758,7 @@ export function decide(
         subject: "claim",
         reason:
           curve && curve.pending > 0
-            ? `${curve.pending.toFixed(2)} is on the curve, waiting on Pons's sweep`
+            ? `${curve.pending.toFixed(2)} is on the curve, waiting on the launch's sweep`
             : "the launch has accrued nothing",
       });
     } else if (total < floor) {

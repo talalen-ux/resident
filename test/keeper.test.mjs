@@ -760,7 +760,7 @@ test("curve fees the vault may sweep count toward the claim", () => {
   assert.match(claim.reason, /900.00 on the curve/);
 });
 
-test("curve fees Pons must sweep are named, not counted", () => {
+test("curve fees the protocol must sweep are named, not counted", () => {
   // They are still ours and they still arrive; what we do not have is the
   // right to move them now. Counting them would put the desk over the gas
   // floor for a call that sweeps nothing.
@@ -771,7 +771,7 @@ test("curve fees Pons must sweep are named, not counted", () => {
     },
   }));
   assert.equal(decision.intents.filter((i) => i.kind === "claim").length, 0);
-  assert.ok(decision.passed.some((p) => /waiting on Pons's sweep/.test(p.reason)));
+  assert.ok(decision.passed.some((p) => /waiting on the launch's sweep/.test(p.reason)));
 });
 
 test("a claim that can only reach the escrow does not carry a curve", () => {

@@ -1,8 +1,7 @@
 /**
- * Claiming the launch's own fees back into the vault.
+ * Claiming fees a launch holds in escrow.
  *
- * The selector assertions are against the signatures in ponsdotdev/ponsfamily
- * contractsV2 (ILaunchpadV2.sol and PonsV2MemeHook.sol). The rest are about
+ * The selector assertions pin each one to its signature. The rest are about
  * calls that would silently do nothing: a claim encoded against the wrong
  * argument returns zero and looks like "no fees yet".
  */
@@ -11,14 +10,14 @@ import assert from "node:assert/strict";
 import { id } from "ethers";
 
 import {
-  PONS_SELECTORS,
+  ESCROW_SELECTORS,
   claimCall,
   claimable,
   escrowOf,
   pending,
   sweepCall,
   verifyClaim,
-} from "../src/lib/keeper/pons.ts";
+} from "../src/lib/keeper/fee-escrow.ts";
 
 const VAULT = "0x1111111111111111111111111111111111111111";
 const HOOK = "0x2222222222222222222222222222222222222222";
@@ -39,15 +38,15 @@ test("every selector matches the signature it claims", () => {
     pendingCreatorTax: "pendingCreatorTax(bytes32,address)",
   };
   for (const [name, signature] of Object.entries(signatures)) {
-    assert.equal(PONS_SELECTORS[name], id(signature).slice(0, 10), name);
+    assert.equal(ESCROW_SELECTORS[name], id(signature).slice(0, 10), name);
   }
 });
 
 test("claimToken is the token overload, not the bare claim", () => {
   // claim() and claim(uint256) exist too. Encoding either where claimToken was
   // meant sends a call that succeeds and moves the wrong asset, or nothing.
-  assert.notEqual(PONS_SELECTORS.claimToken, id("claim()").slice(0, 10));
-  assert.notEqual(PONS_SELECTORS.claimToken, id("claimToken(address,uint256)").slice(0, 10));
+  assert.notEqual(ESCROW_SELECTORS.claimToken, id("claim()").slice(0, 10));
+  assert.notEqual(ESCROW_SELECTORS.claimToken, id("claimToken(address,uint256)").slice(0, 10));
 });
 
 test("the escrow is read off the hook rather than configured", async () => {
@@ -58,7 +57,7 @@ test("the escrow is read off the hook rather than configured", async () => {
   };
   assert.equal(await escrowOf(call, HOOK), ESCROW);
   assert.equal(asked[0].to, HOOK);
-  assert.equal(asked[0].data, PONS_SELECTORS.feeEscrow);
+  assert.equal(asked[0].data, ESCROW_SELECTORS.feeEscrow);
 });
 
 test("claimable asks the escrow for this vault's balance of this token", async () => {
@@ -77,7 +76,7 @@ test("claimable asks the escrow for this vault's balance of this token", async (
 
 test("pending adds both buckets, because a sweep pays them together", async () => {
   const call = async (to, data) =>
-    data.startsWith(PONS_SELECTORS.pendingFees) ? "0x" + hex(900) : "0x" + hex(100);
+    data.startsWith(ESCROW_SELECTORS.pendingFees) ? "0x" + hex(900) : "0x" + hex(100);
   assert.equal(await pending(call, HOOK, POOL, USDG), 1000n);
 });
 
@@ -90,10 +89,10 @@ test("an empty return reads as zero rather than throwing", async () => {
 test("the sweep call carries the pool id and two zero minimums", () => {
   const call = sweepCall(HOOK, POOL);
   assert.equal(call.to, HOOK);
-  assert.ok(call.data.startsWith(PONS_SELECTORS.sweepPoolFees));
+  assert.ok(call.data.startsWith(ESCROW_SELECTORS.sweepPoolFees));
   assert.equal(wordAt(call.data, 0), POOL.slice(2));
   // Zero is only safe because a sweep needing an internal swap reverts for
-  // anyone but Pons's operator, so this can never be the bound on our swap.
+  // anyone but the protocol's operator, so this is never the bound on our swap.
   assert.equal(wordAt(call.data, 1), hex(0));
   assert.equal(wordAt(call.data, 2), hex(0));
 });
@@ -101,7 +100,7 @@ test("the sweep call carries the pool id and two zero minimums", () => {
 test("the claim call names the token and nothing else", () => {
   const call = claimCall(ESCROW, USDG);
   assert.equal(call.to, ESCROW);
-  assert.equal(call.data, PONS_SELECTORS.claimToken + hex(USDG));
+  assert.equal(call.data, ESCROW_SELECTORS.claimToken + hex(USDG));
 });
 
 test("a claim that did not raise the vault's balance is not ok", async () => {

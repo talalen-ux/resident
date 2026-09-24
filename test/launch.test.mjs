@@ -1,8 +1,8 @@
 /**
  * Where the launch's fees point.
  *
- * The selector assertions are against the signatures in ponsdotdev/ponsfamily
- * contractsV2. The decode assertions go the other way round: ethers encodes a
+ * The selector assertions pin each one to its signature. The decode
+ * assertions go the other way round: ethers encodes a
  * record from the real struct layout and this decodes it, so a field that
  * moved shows up as a wrong value rather than as a comment that drifted.
  */

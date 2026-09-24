@@ -70,11 +70,11 @@ From `github.com/ponsdotdev/ponsfamily`:
 
 | Contract | Address |
 | --- | --- |
-| PonsV2LaunchFactory | `0x7eD598BcEf8bd9Edd8C97A195C6d13f40801EC7e` |
-| PonsLaunchFactory (v1) | `0xA5aAb3F0c6EeadF30Ef1D3Eb997108E976351feB` |
+| Launch factory (v2) | `0x7eD598BcEf8bd9Edd8C97A195C6d13f40801EC7e` |
+| Launch factory (v1) | `0xA5aAb3F0c6EeadF30Ef1D3Eb997108E976351feB` |
 
-**A correction to what I asked for last time.** There is no static Pons fee
-escrow to configure. V2 keeps a claim-based `IPonsV2FeeEscrow` ledger rather
+**A correction to what I asked for last time.** There is no static fee
+escrow to configure. V2 keeps a claim-based escrow ledger rather
 than one escrow contract, and every launch mints into its own bonding curve, so
 there is no single address. What the desk needs is the factory (above) plus the
 $RES launch address once it exists — set `RESIDENT_TOKEN`. The vault is named
@@ -150,14 +150,14 @@ and have different tolerances for being wrong.
 
 Bitquery already indexes Robinhood Chain end to end — decoded events, token
 transfers, DEX trades and pool liquidity — behind one GraphQL endpoint, with any
-query convertible to a WebSocket stream. It also carries dedicated Pons and
+query convertible to a WebSocket stream. It also carries dedicated launchpad and
 pools.trade launchpad APIs. That covers everything the board and the tracker
 need without building an indexer:
 
 | What | Where it comes from |
 | --- | --- |
 | New pools | v4 `Initialize` on PoolManager; v3 `PoolCreated` on the factory |
-| New launches | Pons v2 factory `TokenLaunched` / `PoolGraduated`; pools.trade |
+| New launches | the launch factory's `TokenLaunched` / `PoolGraduated`; pools.trade |
 | Volume windows, 24h peak | `Swap` events, bucketed |
 | Pool age | first `Initialize` / `PoolCreated` block |
 | LP adds and removes, by wallet | v4 `ModifyLiquidity`; v3 `Mint` / `Burn` / `Collect` |
@@ -217,7 +217,7 @@ the one input the desk cannot run without.
 The v4 singleton makes this much easier than it would have been on v3: there is
 one contract to watch rather than one per pool. A Ponder or Graph node indexing
 `PoolManager` (`Initialize`, `Swap`, `ModifyLiquidity`), the v3 factory, and the
-Pons v2 factory covers the whole table above.
+The launch factory covers the whole table above.
 
 Log polling straight off the RPC also works and is what I would use to get
 moving, but at 100ms blocks it is a lot of logs and it is fragile across reorgs.

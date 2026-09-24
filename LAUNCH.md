@@ -165,29 +165,32 @@ not been audited.**
 
 ## 10. Launch $RES
 
-**The vault does not care which launchpad.** It takes fees as ordinary ERC20
-balance: the money lands, the keeper sees it as idle capital, and the next tick
-deploys it like any other capital. No contract knows the name of a launchpad,
-and none needs to. If you launch somewhere other than Pons, set the fee
-recipient to the vault and skip straight to step 12.
+**The vault does not care where.** No contract in this repository names a
+launchpad, and none needs to: the vault takes fees as ordinary ERC20 balance,
+so the money lands, the keeper sees it as idle capital, and the next tick
+deploys it like any other capital.
 
-The rest of this step is the Pons-specific case, where fees are held in escrow
-until claimed rather than pushed to the recipient. Two configuration choices
-matter there, and both are frozen at launch.
+So there is only one thing that must be right on every launchpad:
 
-Two configuration choices matter, and both are frozen at launch.
+**Fee recipient → the vault.** Set it to the address from step 3. If the launch
+UI will not let you set it up front, launch with your own wallet and move it in
+step 11.
 
-**Fee recipient → the vault.** This is the whole design, and it is the one
-thing that must be right on every launchpad. Set it to the vault address from
-step 3. On Pons, if the launch UI will not let you set it up front, launch with
-your own wallet and fix it in step 11 — that path works and has no timelock.
+That is the whole requirement. If your launchpad pays its fee recipient
+directly, you are done with this step — skip to step 12 and leave
+`RESIDENT_LAUNCH_FACTORY` unset.
 
-**Buyback-and-lock → off, if you want the keeper to sweep on its own
-schedule.** With buyback enabled, part of every creator fee is earmarked for an
-internal swap, and Pons's operator is the only address allowed to perform the
-sweep that releases it. The fees are still yours and still arrive; you wait on
-their cadence rather than yours. With it disabled the vault sweeps its own fees
-every tick.
+### If the launchpad holds fees in escrow
+
+Some launchpads hold fees against a claim rather than paying them out. That
+needs two more things — the factory address and, after graduation, the hook —
+and it makes one launch-time choice worth thinking about.
+
+**Buyback-and-lock, where the launchpad offers it.** With it enabled, part of
+every fee is earmarked for an internal swap, and the protocol's own sweep
+operator is the only address allowed to perform the sweep that releases it. The
+fees are still yours and still arrive; you wait on their cadence rather than
+yours. With it disabled the vault sweeps its own fees every tick.
 
 It is a real trade: buyback-and-lock is a token-side benefit you would be
 giving up. Decide it deliberately rather than by default.
@@ -220,16 +223,15 @@ redirects the money and gives the keeper the right to collect it.
 | `RESIDENT_TOKEN` | the $RES token address |
 | `RESIDENT_TOKEN_BLOCK` | the block it was deployed at |
 | `RESIDENT_NOT_HOLDERS` | comma-separated: the curve, the locker, anything holding $RES that is not a holder to be paid |
-| `RESIDENT_LAUNCHPAD` | `pons` — **only** if you launched on Pons. Leave unset otherwise. |
+| `RESIDENT_LAUNCH_FACTORY` | the launch factory — **only** if the launchpad holds fees in escrow. Leave unset otherwise. |
 
 `RESIDENT_TOKEN` is what the holder list is built from, and is needed wherever
-you launched. `RESIDENT_LAUNCHPAD` is separate and opt-in: it turns on the
-escrow-claiming path, which only Pons needs. Set it for a token launched
-elsewhere and the keeper looks the launch up on a factory that never launched
-it, and complains every tick about something that is fine.
-
-On Pons, `RESIDENT_TOKEN` plus `RESIDENT_LAUNCHPAD=pons` is enough to start
-collecting. The keeper reads the
+you launched. `RESIDENT_LAUNCH_FACTORY` is separate and opt-in: it turns on the
+escrow-claiming path. It is an address rather than the name of a venue, and has
+no default — which factory holds a launch depends on where it was launched, and
+a constant for something that varies is a constant that can be wrong. Set it to
+the wrong one and the keeper looks the launch up somewhere that never launched
+it, and complains every tick about something that is fine. The keeper reads the
 launch record each tick and works out where the fees are — the bonding curve
 before graduation, the hook after it. **You do not have to do anything on
 graduation day.** That was deliberate: a desk whose operator has to notice a
@@ -241,38 +243,38 @@ holder list scans from genesis.
 ## 13. Preflight again
 
 ```bash
-RESIDENT_TOKEN=0xRES RESIDENT_LAUNCHPAD=pons npm run preflight
+RESIDENT_TOKEN=0xRES RESIDENT_LAUNCH_FACTORY=0xFactory npm run preflight
 ```
 
-Now the launch section has something to check. What you want to see:
+Only meaningful for an escrow launchpad. What you want to see:
 
 ```
-  ✓ creator fees pay the vault (not graduated, 100 bps creator tax)
+  ✓ fees pay the vault (not graduated, 100 bps creator tax)
   ✓ the vault may sweep its own curve fees
 ```
 
-If it says `creator fees pay 0x…, NOT the vault`, go back to step 11. Every fee
+If it says `fees pay 0x…, NOT the vault`, go back to step 11. Every fee
 the token earns is currently going somewhere else, and nothing reverts to tell
 you.
 
 ## 14. After graduation
 
-Only once the launch has graduated into a v4 pool. Two more variables and two
+Escrow launchpads only, and only once the launch has graduated into a v4 pool. Two more variables and two
 more signatures:
 
 | Variable | Value |
 |---|---|
-| `RESIDENT_PONS_HOOK` | the PonsV2MemeHook address |
+| `RESIDENT_LAUNCH_HOOK` | the hook holding the graduated pool's fees |
 | `RESIDENT_RES_POOL_ID` | the launch's v4 pool id (bytes32) |
 
 ```bash
-npm run owner -- set-venue <PONS_HOOK> true
+npm run owner -- set-venue <LAUNCH_HOOK> true
 npm run owner -- set-venue <FEE_ESCROW> true
 ```
 
 The escrow address is not configured anywhere — it is read off the hook, which
 exposes it as an immutable public. Get it from `npm run preflight`, which
-prints both once `RESIDENT_PONS_HOOK` is set.
+prints both once `RESIDENT_LAUNCH_HOOK` is set.
 
 ## 15. The control console
 

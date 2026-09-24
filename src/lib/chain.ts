@@ -16,7 +16,6 @@
  *
  * Sources:
  *   Uniswap v3/v4   github.com/Uniswap/contracts/blob/main/deployments/4663.md
- *   Pons            github.com/ponsdotdev/ponsfamily README
  *   USDG / WETH     docs.robinhood.com/chain/contracts, supplied directly by
  *                   the operator from the page itself
  *   Chain id / RPC  web search of docs.robinhood.com/chain (the docs site
@@ -131,23 +130,8 @@ export const UNISWAP = {
   permit2: "0x000000000022d473030f116ddee9f6b43ac78ba3",
 } as const;
 
-/**
- * Pons launchpad.
- *
- * There is no static fee-escrow address to configure: the V2 system keeps a
- * claim-based `IPonsV2FeeEscrow` ledger rather than one escrow contract, and
- * every launch mints into its own bonding curve. The vault is set as the
- * launch's creator-fee recipient and the keeper claims against the ledger, so
- * what the desk needs is the factory plus the $RES launch address.
- */
-export const PONS = {
-  v2Factory: "0x7eD598BcEf8bd9Edd8C97A195C6d13f40801EC7e",
-  v1Factory: "0xA5aAb3F0c6EeadF30Ef1D3Eb997108E976351feB",
-} as const;
-
 /** Widened from the `as const` defaults, so an env override can replace one. */
 export type UniswapAddresses = { -readonly [K in keyof typeof UNISWAP]: string };
-export type PonsAddresses = { -readonly [K in keyof typeof PONS]: string };
 
 export type ChainConfig = {
   name: string;
@@ -158,7 +142,22 @@ export type ChainConfig = {
   vault: string;
   resToken: string | null;
   uniswap: UniswapAddresses;
-  pons: PonsAddresses;
+  /**
+   * The launch factory, when the token was launched somewhere that holds its
+   * fees in escrow until claimed rather than paying the recipient directly.
+   *
+   * Null is the ordinary case and not a gap. The vault takes fees as plain
+   * balance, so a launch that pays its fee recipient needs nothing here — the
+   * money lands and the next tick deploys it. This exists only to turn on the
+   * narrower claiming path, and it is an address rather than the name of a
+   * venue so that adding one is configuration rather than a release.
+   *
+   * There is deliberately no default. A launch factory differs per venue, and
+   * an address constant for something that varies is an address constant that
+   * can be wrong — the same reason the fee escrow is read off the launch
+   * rather than written down.
+   */
+  launchFactory: string | null;
 };
 
 /**
@@ -214,12 +213,7 @@ export function chainBeforeVault(
         ? { v3PositionManager: env.RESIDENT_V3_POSITION_MANAGER }
         : {}),
     },
-    pons: {
-      ...PONS,
-      ...(env.RESIDENT_PONS_V2_FACTORY
-        ? { v2Factory: env.RESIDENT_PONS_V2_FACTORY }
-        : {}),
-    },
+    launchFactory: env.RESIDENT_LAUNCH_FACTORY ?? null,
   };
 }
 
@@ -259,7 +253,9 @@ export function addressManifest(config: ChainConfig): Array<[string, string]> {
     ["v4 StateView", config.uniswap.v4StateView],
     ["UniversalRouter", config.uniswap.universalRouter],
     ["Permit2", config.uniswap.permit2],
-    ["PonsV2LaunchFactory", config.pons.v2Factory],
+    ...(config.launchFactory
+      ? [["launch factory", config.launchFactory] as [string, string]]
+      : []),
     ...(config.vault ? [["ResidentVault", config.vault] as [string, string]] : []),
   ];
 }

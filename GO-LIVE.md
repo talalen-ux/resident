@@ -202,31 +202,45 @@ reports a gain on exactly the move that cost money.
 
 ### The launch's own fees
 
-Once $RES is launched on Pons with the vault as its creator fee recipient, two
-more variables turn the inflow on:
+**Most launchpads need nothing here.** The vault takes fees as ordinary ERC20
+balance, so a launch that pays its fee recipient is already done: point the
+recipient at the vault, and the money lands as idle capital the next tick
+deploys. No contract in this repository names a launchpad, and none needs to.
+
+What follows is for the narrower case — a launchpad that holds fees against a
+claim rather than paying them out. Three variables turn that path on:
 
 | Variable | Value |
 |---|---|
-| `RESIDENT_PONS_HOOK` | the PonsV2MemeHook address |
+| `RESIDENT_LAUNCH_FACTORY` | the factory holding the launch record |
+| `RESIDENT_LAUNCH_HOOK` | the hook holding the graduated pool's fees |
 | `RESIDENT_RES_POOL_ID` | the launch's v4 pool id (bytes32) |
 
-The escrow is **not** configured. It is read off the hook, which exposes it as
-an immutable public, because an address constant for something discoverable is
-an address constant that can be wrong.
+None of them has a default. Which factory holds a launch depends on where it
+was launched, and an address constant for something that varies is an address
+constant that can be wrong. Unset means "fees arrive as balance", which is the
+ordinary case rather than a gap.
+
+The escrow is not configured at all. It is read off the hook, which exposes it
+as an immutable public — the same argument, applied to something discoverable.
 
 Allowlist both venues from the owner wallet, exactly as with Uniswap:
 
 ```bash
-npm run owner -- set-venue <PONS_HOOK> true
+npm run owner -- set-venue <LAUNCH_HOOK> true
 npm run owner -- set-venue <FEE_ESCROW> true
 ```
 
 Each tick the keeper reads what the launch has accrued and claims it once it
 clears the same gas floor a sweep does. The claim is two calls: a sweep that
 credits the escrow, then a claim that pays it out to the vault. The sweep
-reverts for anyone but Pons's own sweep operator whenever it would need an
-internal swap, and that revert is correct rather than a failure — those fees are
-theirs to convert, and the claim still takes whatever is already credited.
+reverts for anyone but the protocol's own sweep operator whenever it would need
+an internal swap, and that revert is correct rather than a failure — those fees
+are theirs to convert, and the claim still takes whatever is already credited.
+
+Before graduation the fees are not on the hook at all; they are on the launch's
+bonding curve, and the keeper reads the launch record each tick to work out
+which. Nothing has to be changed on graduation day.
 
 The claimed amount lands in the vault as ordinary balance, which the next tick
 deploys like any other idle capital. Nothing downstream knows or cares that it

@@ -19,8 +19,8 @@
 import { Interface } from "ethers";
 
 import { compile } from "../test/harness.mjs";
-import { PONS, UNISWAP, requireChain } from "../src/lib/chain.ts";
-import { escrowOf } from "../src/lib/keeper/pons.ts";
+import { UNISWAP, requireChain } from "../src/lib/chain.ts";
+import { escrowOf } from "../src/lib/keeper/fee-escrow.ts";
 import { feesPointAt, launchOf } from "../src/lib/keeper/launch.ts";
 import { curveState, curveSweep } from "../src/lib/keeper/curve.ts";
 
@@ -241,34 +241,35 @@ for (const [label, address] of [
 // Both are checked only when configured. A desk that has not launched yet is
 // not misconfigured; it is early.
 console.log("\nThe launch:");
-const ponsHook = process.env.RESIDENT_PONS_HOOK;
+const launchHook = process.env.RESIDENT_LAUNCH_HOOK;
+const launchFactory = process.env.RESIDENT_LAUNCH_FACTORY;
 const resToken = process.env.RESIDENT_TOKEN;
 
-if (process.env.RESIDENT_LAUNCHPAD !== "pons") {
-  // Not a fault. The vault takes fees as ordinary balance, so a launch
-  // anywhere that can pay a fee recipient needs nothing here; these checks are
-  // for the narrower case of fees held in escrow until claimed.
-  flag("RESIDENT_LAUNCHPAD is not set to pons — launch fees are expected to arrive as plain balance");
+if (!launchFactory) {
+  // Not a fault. The vault takes fees as ordinary balance, so a launch that
+  // pays its fee recipient needs nothing here; these checks are for the
+  // narrower case of fees held in escrow until claimed.
+  flag("RESIDENT_LAUNCH_FACTORY not set — launch fees are expected to arrive as plain balance");
 } else if (!resToken) {
   flag("RESIDENT_TOKEN not set — cannot confirm the launch pays this vault");
 } else {
   try {
     const record = await launchOf(
       (to, data) => rpc("eth_call", [{ to, data }, "latest"]),
-      process.env.RESIDENT_PONS_V2_FACTORY ?? PONS.v2Factory,
+      launchFactory,
       resToken,
     );
     if (!record.exists) {
-      fail(`the Pons factory has no launch for ${resToken} — wrong token address, or it was not launched on Pons V2`);
+      fail(`${launchFactory} has no launch record for ${resToken} — wrong token address, or the wrong factory`);
     } else if (feesPointAt(record, config.vault)) {
-      console.log(ok(`creator fees pay the vault (${record.phase}, ${record.creatorTaxBps} bps creator tax)`));
+      console.log(ok(`fees pay the vault (${record.phase}, ${record.creatorTaxBps} bps creator tax)`));
 
       // Before graduation the fees are on the curve, and pointing them at the
       // vault also made the vault the only address allowed to sweep — unless
-      // a buyback slice is earmarked, which hands that right to Pons. Neither
-      // loses money. One means the keeper sweeps on its own schedule; the
-      // other means it waits on theirs, which on a launch's first day is the
-      // difference between compounding today and compounding whenever.
+      // a buyback slice is earmarked, which hands that right to the protocol.
+      // Neither loses money. One means the keeper sweeps on its own schedule;
+      // the other means it waits on theirs, which on a launch's first day is
+      // the difference between compounding today and compounding whenever.
       if (record.phase === "not graduated") {
         const state = await curveState(
           (to, data) => rpc("eth_call", [{ to, data }, "latest"]),
@@ -283,26 +284,26 @@ if (process.env.RESIDENT_LAUNCHPAD !== "pons") {
       }
     } else {
       fail(
-        `creator fees pay ${record.creatorFeeRecipient}, NOT the vault — ` +
+        `fees pay ${record.creatorFeeRecipient}, NOT the vault — ` +
           "every fee this token earns is going elsewhere",
       );
       console.log(`      fix: npm run owner -- point-launch-fees ${resToken}`);
-      console.log("      sign it from the launch wallet, not the owner wallet");
+      console.log("      sign it from the wallet that currently receives them");
     }
   } catch (err) {
     fail(`could not read the launch record: ${err.message}`);
   }
 }
 
-if (!ponsHook) {
-  flag("RESIDENT_PONS_HOOK not set — the keeper will not claim launch fees");
-} else {
+if (launchFactory && !launchHook) {
+  flag("RESIDENT_LAUNCH_HOOK not set — the keeper will not claim fees once the launch graduates");
+} else if (launchHook) {
   try {
     const escrow = await escrowOf(
       (to, data) => rpc("eth_call", [{ to, data }, "latest"]),
-      ponsHook,
+      launchHook,
     );
-    for (const [label, address] of [["Pons hook", ponsHook], ["fee escrow", escrow]]) {
+    for (const [label, address] of [["launch hook", launchHook], ["fee escrow", escrow]]) {
       const allowed = await read("isVenue", [address]);
       if (allowed) console.log(ok(`${label} ${address} allowlisted`));
       else fail(`${label} ${address} is NOT allowlisted — the claim will revert every tick`);

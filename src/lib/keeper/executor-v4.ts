@@ -20,7 +20,7 @@
 import { Interface } from "ethers";
 
 import { UNISWAP } from "../chain.ts";
-import { claimCall, escrowOf, sweepCall, verifyClaim } from "./pons.ts";
+import { claimCall, escrowOf, sweepCall, verifyClaim } from "./fee-escrow.ts";
 import { curveSweepCall } from "./curve.ts";
 import { splitPro } from "./holders.ts";
 import { minOutFor, swapCall, type ConvertConfig } from "./swap-v4.ts";
@@ -91,12 +91,12 @@ export type V4Context = {
   /** Slippage allowed on a mint, as a fraction. */
   slippage?: number;
   /**
-   * The Pons meme hook holding the launch's fees.
+   * The hook holding the launch's fees, when a launch holds them in escrow.
    *
    * Optional: a desk with no launch of its own still runs, it simply never
    * claims. The escrow is read off this hook rather than configured.
    */
-  ponsHook?: string;
+  launchHook?: string;
   /** Raw eth_call, for the reads a claim has to make. */
   call(to: string, data: string): Promise<string>;
   /**
@@ -858,22 +858,22 @@ export function makeV4Executor(ctx: V4Context) {
       // whichever one holds the fees is also the thing that says where to
       // claim them from. No third address to configure, and nothing to keep in
       // step with a graduation that happens on its own schedule.
-      const source = intent.curve ?? ctx.ponsHook;
+      const source = intent.curve ?? ctx.launchHook;
       if (!source) {
-        throw new Error("claim: no Pons hook configured, so there is nothing to sweep");
+        throw new Error("claim: no launch hook configured, so there is nothing to sweep");
       }
       const call = (to: string, data: string) => ctx.call(to, data);
       const escrow = await escrowOf(call, source);
       const before = await balanceOfRaw(call, intent.token, ctx.vault);
 
-      // The sweep moves fees into the escrow. It reverts for anyone but Pons's
-      // own operator whenever an internal swap is needed, and that revert is
-      // correct rather than a failure of ours: those fees are theirs to
-      // convert. The claim still runs, for whatever is already credited.
+      // The sweep moves fees into the escrow. It reverts for anyone but the
+      // protocol's own operator whenever an internal swap is needed, and that
+      // revert is correct rather than a failure of ours: those fees are theirs
+      // to convert. The claim still runs, for whatever is already credited.
       try {
         const sweep = intent.curve
           ? curveSweepCall(intent.curve)
-          : sweepCall(ctx.ponsHook!, intent.poolId);
+          : sweepCall(ctx.launchHook!, intent.poolId);
         await send(viaVault(ctx.vault, sweep.to, sweep.data, sweep.description));
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);

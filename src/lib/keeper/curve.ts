@@ -1,9 +1,9 @@
 /**
  * The bonding curve, which is where a launch's first fees actually are.
  *
- * `pons.ts` claims fees off the hook. The hook only exists after the launch
+ * `fee-escrow.ts` claims fees off the hook. The hook only exists after the launch
  * graduates into a Uniswap v4 pool. Before that, every trade happens on
- * PonsV2BondingCurve, and its fees sit in two balances on the curve itself:
+ * the launch's bonding curve, and its fees sit in two balances on it:
  *
  *   quoteFeeBalance    the base fee, split protocol / buyback / creator
  *   creatorTaxBalance  the creator tax, paid to the creator in full
@@ -14,7 +14,7 @@
  * contract nobody has asked to pay out. That is the entire reason this file
  * exists.
  *
- * Who may call it, from PonsV2BondingCurve.sol:
+ * Who may call it:
  *
  *   if (!isOperator && msg.sender != deployer) revert NotFeeSweepOperator();
  *   if (!isOperator && _requiresTrustedOperator()) revert InternalSwapRequiresOperator();
@@ -28,7 +28,7 @@
  *
  * `_requiresTrustedOperator()` is `buybackQuoteBalance != 0`. A launch with
  * buyback-and-lock enabled earmarks a slice of every creator fee for an
- * internal swap, and that swap is Pons's to price, not ours. While that
+ * internal swap, and that swap is the protocol's to price, not ours. While that
  * balance is non-zero the sweep is theirs alone and ours reverts. With buyback
  * disabled at launch it stays zero and the vault sweeps its own fees on its own
  * schedule. That is a launch-configuration decision with a direct operational
@@ -39,8 +39,7 @@ import { word } from "./position-reader.ts";
 import type { UnsignedCall } from "./signer.ts";
 
 /**
- * Derived from the signatures in PonsV2BondingCurve.sol. test/curve.test.mjs
- * re-derives each one.
+ * test/curve.test.mjs re-derives each one from its signature.
  */
 export const CURVE_SELECTORS = {
   /** sweepFees(uint256 minBuybackTokensOut) */
@@ -49,7 +48,7 @@ export const CURVE_SELECTORS = {
   quoteFeeBalance: "0xed479c47",
   /** creatorTaxBalance() */
   creatorTaxBalance: "0xdb2bd533",
-  /** buybackQuoteBalance() — non-zero means only Pons may sweep */
+  /** buybackQuoteBalance() — non-zero means only the protocol may sweep */
   buybackQuoteBalance: "0x7809452a",
   /** graduated() */
   graduated: "0xe7c2b772",
@@ -75,7 +74,7 @@ export type CurveState = {
   /** Who may sweep. Should be the vault. */
   deployer: string;
   /**
-   * True when a buyback slice is earmarked, which makes the sweep Pons's
+   * True when a buyback slice is earmarked, which makes the sweep the protocol's
    * alone. Not a fault: the fees stay pending and arrive later.
    */
   operatorOnly: boolean;
@@ -131,7 +130,7 @@ export function curveSweep(
   if (state.operatorOnly) {
     return {
       sweep: false,
-      reason: "a buyback slice is earmarked, so this sweep is Pons's to make",
+      reason: "a buyback slice is earmarked, so this sweep is the protocol's to make",
     };
   }
   if (state.pending < minimum) {

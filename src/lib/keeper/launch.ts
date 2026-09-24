@@ -7,11 +7,11 @@
  * somebody else. That is a silent failure — no revert, no error, just an
  * inflow of zero that looks exactly like a quiet market.
  *
- * So it is read, not assumed. PonsV2LaunchFactory keeps a record per token and
+ * So it is read, not assumed. The launch factory keeps a record per token and
  * exposes it as `getLaunchedToken(address)`, which includes the recipient.
  *
  * The recipient is also changeable, which matters for the order of operations.
- * From ponsdotdev/ponsfamily contractsV2 PonsV2LaunchFactory.sol:
+ * From the factory:
  *
  *   - `transferCreatorFeeRecipient(token, newRecipient)` is callable by the
  *     current recipient, takes effect immediately, and is explicitly exempt
@@ -30,18 +30,17 @@ import { word } from "./position-reader.ts";
 import type { UnsignedCall } from "./signer.ts";
 
 /**
- * Derived from the signatures in PonsV2LaunchFactory.sol and ILaunchpadV2.sol.
- * test/launch.test.mjs re-derives both, so a drift breaks the build rather
+ * test/launch.test.mjs re-derives both from their signatures, so a drift breaks the build rather
  * than sending a call nothing answers.
  */
 export const LAUNCH_SELECTORS = {
-  /** IPonsV2LaunchFactory.getLaunchedToken(address) */
+  /** getLaunchedToken(address) */
   getLaunchedToken: "0x3cf28b5a",
-  /** PonsV2LaunchFactory.transferCreatorFeeRecipient(address,address) */
+  /** transferCreatorFeeRecipient(address,address) */
   transferCreatorFeeRecipient: "0x2931861b",
 } as const;
 
-/** ILaunchpadV2.GraduationPhase, in declaration order. */
+/** GraduationPhase, in declaration order. */
 export const GRADUATION_PHASES = [
   "not graduated",
   "swept",

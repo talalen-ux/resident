@@ -36,7 +36,7 @@ import {
 } from "../src/lib/keeper/vault-reader.ts";
 import { inventoryAge, seriesFrom } from "../src/lib/keeper/marks.ts";
 import { HolderIndex } from "../src/lib/keeper/holder-index.ts";
-import { claimable as claimableOf, escrowOf, pending as pendingOf } from "../src/lib/keeper/pons.ts";
+import { claimable as claimableOf, escrowOf, pending as pendingOf } from "../src/lib/keeper/fee-escrow.ts";
 import { launchOf } from "../src/lib/keeper/launch.ts";
 import { curveState, curveSweep } from "../src/lib/keeper/curve.ts";
 import { poolId as poolIdOf } from "../src/lib/sim/v4.ts";
@@ -53,7 +53,7 @@ import { makeV4Executor } from "../src/lib/keeper/executor-v4.ts";
 import { makeV4Reconciler } from "../src/lib/keeper/reconcile-v4.ts";
 import { jsonRpc, receiptWaiter } from "../src/lib/keeper/tx.ts";
 import { readV4Pool, rpcReader } from "../src/lib/sim/v4.ts";
-import { MAINNET, PONS, TOKENS, UNISWAP } from "../src/lib/chain.ts";
+import { MAINNET, TOKENS, UNISWAP } from "../src/lib/chain.ts";
 import { DEFAULT_TICK, tick } from "../src/lib/keeper/loop.ts";
 import { loadState } from "../src/lib/keeper/registry.ts";
 import { ledgerFrom, ledgerTotals } from "../src/lib/keeper/ledger.ts";
@@ -137,8 +137,8 @@ const configVerdict = checkConfig({
   chainId: reportedChainId,
   mainnetChainId: MAINNET.chainId,
   controlWallet: process.env.RESIDENT_CONTROL_WALLET,
-  ponsHook: process.env.RESIDENT_PONS_HOOK,
-  ponsPoolId: process.env.RESIDENT_RES_POOL_ID,
+  launchHook: process.env.RESIDENT_LAUNCH_HOOK,
+  launchPoolId: process.env.RESIDENT_RES_POOL_ID,
 });
 
 if (!configVerdict.ok) {
@@ -242,8 +242,15 @@ const QUOTE = {
   decimals: Number(process.env.RESIDENT_USDG_DECIMALS ?? 6),
 };
 
-/** Where the launch record lives. Overridable, like every other address. */
-const PONS_FACTORY = process.env.RESIDENT_PONS_V2_FACTORY ?? PONS.v2Factory;
+/**
+ * The launch factory, when the launch holds its fees in escrow.
+ *
+ * No default. Which factory, if any, depends on where the token was launched,
+ * and an address constant for something that varies is one that can be wrong.
+ * Unset means fees are expected to arrive as plain balance, which is the
+ * ordinary case and needs no code.
+ */
+const LAUNCH_FACTORY = process.env.RESIDENT_LAUNCH_FACTORY;
 
 /**
  * With a vault address the desk builds the real thing: real pool state, real
@@ -264,7 +271,7 @@ const execute = VAULT
       vault: VAULT,
       positionManager: process.env.RESIDENT_V4_POSITION_MANAGER ?? UNISWAP.v4PositionManager,
       permit2: process.env.RESIDENT_PERMIT2 ?? UNISWAP.permit2,
-      ponsHook: process.env.RESIDENT_PONS_HOOK,
+      launchHook: process.env.RESIDENT_LAUNCH_HOOK,
       payoutAsset: QUOTE.address,
       universalRouter: process.env.RESIDENT_UNIVERSAL_ROUTER ?? UNISWAP.universalRouter,
       // Addresses that hold $RES without being holders to be paid. The vault
@@ -533,7 +540,7 @@ const deps = {
     // The launch's own fees. Absent rather than zero when no launch is
     // configured: a desk with no launch should say nothing about claiming.
     let launchFees;
-    const hook = process.env.RESIDENT_PONS_HOOK;
+    const hook = process.env.RESIDENT_LAUNCH_HOOK;
     const launchPool = process.env.RESIDENT_RES_POOL_ID;
     const resToken = process.env.RESIDENT_TOKEN;
 
@@ -555,11 +562,11 @@ const deps = {
     // would otherwise have its record looked up on a factory that never
     // launched it, and log an error every tick about a launch that is fine.
     let launch;
-    if (resToken && process.env.RESIDENT_LAUNCHPAD === "pons") {
+    if (resToken && LAUNCH_FACTORY) {
       try {
-        launch = await launchOf(call, PONS_FACTORY, resToken);
+        launch = await launchOf(call, LAUNCH_FACTORY, resToken);
         if (!launch.exists) {
-          console.error(`  the Pons factory has no launch for ${resToken}`);
+          console.error(`  ${LAUNCH_FACTORY} has no launch record for ${resToken}`);
           launch = undefined;
         } else if (launch.pairToken.toLowerCase() !== QUOTE.address.toLowerCase()) {
           // Amounts below would be scaled by the payout asset's decimals,

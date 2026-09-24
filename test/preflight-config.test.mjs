@@ -64,11 +64,11 @@ test("no RPC is a refusal whatever else is set", () => {
 });
 
 test("half a launch is refused, because the other half fails silently", () => {
-  const hookOnly = checkConfig({ ...base, ponsHook: "0xhook" });
+  const hookOnly = checkConfig({ ...base, launchHook: "0xhook" });
   assert.equal(hookOnly.ok, false);
   assert.ok(hookOnly.problems.some((p) => /must be set together/.test(p)));
 
-  const both = checkConfig({ ...base, ponsHook: "0xhook", ponsPoolId: "0xpool" });
+  const both = checkConfig({ ...base, launchHook: "0xhook", launchPoolId: "0xpool" });
   assert.equal(both.ok, true);
 
   const neither = checkConfig(base);

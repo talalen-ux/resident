@@ -1,7 +1,7 @@
 /**
  * Sweeping the bonding curve.
  *
- * The selector assertions are against PonsV2BondingCurve.sol. The rest are
+ * The selector assertions pin each one to its signature. The rest are
  * about the two ways this call reverts — the wrong caller, and a buyback
  * earmark — both of which are cheaper to read than to discover on chain.
  */
@@ -79,14 +79,14 @@ test("it sweeps when the vault may and the amount clears the floor", async () =>
   assert.equal(decision.call.data.slice(0, 10), CURVE_SELECTORS.sweepFees);
 });
 
-test("a buyback earmark makes the sweep Pons's, and that is not a failure", async () => {
-  // The fees are not lost and nothing is misconfigured: their operator sweeps
+test("a buyback earmark makes the sweep the protocol's, and that is not a failure", async () => {
+  // The fees are not lost and nothing is misconfigured: the operator sweeps
   // and the escrow still credits the vault. Attempting it ourselves reverts on
   // InternalSwapRequiresOperator and spends gas proving what was readable.
   const state = await curveState(reader({ [CURVE_SELECTORS.buybackQuoteBalance]: hex(7) }), CURVE);
   const decision = curveSweep(CURVE, state, VAULT, 500n);
   assert.equal(decision.sweep, false);
-  assert.match(decision.reason, /Pons's to make/);
+  assert.match(decision.reason, /protocol's to make/);
 });
 
 test("it refuses when the curve still pays somebody else", async () => {

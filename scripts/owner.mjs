@@ -19,7 +19,26 @@
 
 import { Interface } from "ethers";
 
-import { PONS, requireChain } from "../src/lib/chain.ts";
+import { requireChain } from "../src/lib/chain.ts";
+
+/**
+ * The launch factory to act on.
+ *
+ * Required rather than defaulted. Which factory holds a launch depends on
+ * where it was launched, and this call hands a fee stream over irreversibly —
+ * sending it to a guessed address is the one mistake with no undo.
+ */
+function launchFactory() {
+  const address = process.env.RESIDENT_LAUNCH_FACTORY;
+  if (!/^0x[0-9a-fA-F]{40}$/.test(address ?? "")) {
+    console.error(
+      "RESIDENT_LAUNCH_FACTORY must be set to the factory that holds this launch.\n" +
+        "There is no default: it differs by launchpad, and this action cannot be undone.",
+    );
+    process.exit(1);
+  }
+  return address;
+}
 import { pointFeesCall } from "../src/lib/keeper/launch.ts";
 
 const VAULT = new Interface([
@@ -76,7 +95,7 @@ const ACTIONS = {
     usage: "withdraw <asset> <to> <amountInMinorUnits>",
     note: "The power that makes this role the one to keep off a server.",
   },
-  // Not a vault call, and not the owner's to sign. The Pons factory lets the
+  // Not a vault call, and not the owner's to sign. A launch factory lets the
   // CURRENT creator fee recipient hand the stream on, with no timelock — so at
   // launch that is the wallet that launched, whoever it is. It lives here
   // because it belongs to the same job: things you sign by hand, once, that
@@ -84,7 +103,7 @@ const ACTIONS = {
   "point-launch-fees": {
     build: (token, chain) =>
       pointFeesCall(
-        process.env.RESIDENT_PONS_V2_FACTORY ?? PONS.v2Factory,
+        launchFactory(),
         token,
         chain.vault,
       ),

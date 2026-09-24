@@ -1,55 +1,59 @@
 /**
- * Claiming the launch's own fees back into the vault.
+ * Claiming fees a launch holds in escrow.
  *
- * This is the inflow the whole design exists to compound: the token's trading
- * fees become working capital that funds LP positions in other tokens. The
- * vault is the launch's creator fee recipient, so the fees are already the
- * desk's; what is missing is the two calls that move them.
+ * Some launchpads pay the fee recipient directly. Nothing here is needed for
+ * those: the money arrives in the vault as ordinary balance and the next tick
+ * deploys it. Others hold fees against a claim, and this is the two calls that
+ * move them.
  *
- * The path, from ponsdotdev/ponsfamily contractsV2:
+ * The path:
  *
- *   1. PonsV2MemeHook accrues fees per pool in pendingFees[poolId][currency].
- *      sweepPoolFees splits them and credits the creator's share into a shared
- *      escrow. The creator may call it; the protocol's sweep operator must,
- *      whenever the sweep would need an internal swap (memecoin-denominated
- *      fees, or a pending buyback earmark). We attempt it and let the revert
- *      stand: those cases belong to Pons's operator, not to us.
+ *   1. The hook accrues fees per pool. A sweep splits them and credits the
+ *      recipient's share into a shared escrow. The recipient may call it; the
+ *      protocol's own sweep operator must, whenever the sweep would need an
+ *      internal swap. We attempt it and let the revert stand: those cases
+ *      belong to the operator, not to us.
  *
- *   2. IPonsV2FeeEscrow holds a claimable balance per recipient.
- *      claimToken(token) pays it out.
+ *   2. The escrow holds a claimable balance per recipient, and claimToken
+ *      pays it out.
  *
  * No escrow address is written down here. The hook exposes its escrow as an
- * immutable public, so it is read from the hook the desk is actually pointed
+ * immutable public, so it is read off the hook the desk is actually pointed
  * at. An address constant for something discoverable is an address constant
  * that can be wrong.
  *
- * One thing is inferred rather than read: the escrow implementation is not in
- * that repository, only its interface, so "claimToken pays msg.sender" comes
- * from the shape of the interface — claim takes no recipient, and balances are
+ * One thing is inferred rather than read: the escrow implementation was not
+ * published, only its interface, so "claimToken pays msg.sender" comes from
+ * the shape of that interface — claim takes no recipient, and balances are
  * keyed by recipient. Rather than trust the inference, the keeper checks the
  * vault's balance actually rose. See verifyClaim.
+ *
+ * Provenance: the selectors below were derived from the interfaces published
+ * at github.com/ponsdotdev/ponsfamily (contractsV2). That citation stays so
+ * the signatures can be re-checked against their source; nothing in the desk
+ * is tied to that venue, and a launchpad with the same interface works
+ * unchanged.
  */
 
 import { POSITION_SELECTORS, word } from "./position-reader.ts";
 import type { UnsignedCall } from "./signer.ts";
 
 /**
- * Selectors, derived from the signatures in ILaunchpadV2.sol and
- * PonsV2MemeHook.sol. test/pons.test.mjs re-derives each one, so a drift breaks
- * the build rather than sending a call nothing answers.
+ * test/fee-escrow.test.mjs re-derives every one of these from its signature,
+ * so a drift breaks the build rather than sending a call nothing answers.
  */
-export const PONS_SELECTORS = {
-  /** IPonsV2FeeEscrow.claimToken(address) */
+export const ESCROW_SELECTORS = {
+  /** claimToken(address) */
   claimToken: "0x32f289cf",
-  /** IPonsV2FeeEscrow.balanceOfToken(address,address) */
+  /** balanceOfToken(address,address) */
   balanceOfToken: "0xf59e38b7",
-  /** PonsV2MemeHook.sweepPoolFees(bytes32,uint256,uint256) */
+  /** sweepPoolFees(bytes32,uint256,uint256) */
   sweepPoolFees: "0x3d61055e",
-  /** PonsV2MemeHook.feeEscrow() */
+  /** feeEscrow() */
   feeEscrow: "0xc4b7de97",
-  /** PonsV2MemeHook.pendingFees(bytes32,address) */
+  /** pendingFees(bytes32,address) */
   pendingFees: "0x359b4f30",
-  /** PonsV2MemeHook.pendingCreatorTax(bytes32,address) */
+  /** pendingCreatorTax(bytes32,address) */
   pendingCreatorTax: "0xc8eaa792",
 } as const;
 
@@ -62,7 +66,7 @@ const big = (hex: string): bigint => (!hex || hex === "0x" ? 0n : BigInt(hex));
 
 /** Where this hook credits claimable balances. Read, never configured. */
 export async function escrowOf(call: Call, hook: string): Promise<string> {
-  const result = await call(hook, PONS_SELECTORS.feeEscrow);
+  const result = await call(hook, ESCROW_SELECTORS.feeEscrow);
   return `0x${word(result, 0).slice(24)}`;
 }
 
@@ -76,7 +80,7 @@ export async function claimable(
   return big(
     await call(
       escrow,
-      PONS_SELECTORS.balanceOfToken + pad(vault) + pad(token),
+      ESCROW_SELECTORS.balanceOfToken + pad(vault) + pad(token),
     ),
   );
 }
@@ -96,8 +100,8 @@ export async function pending(
   token: string,
 ): Promise<bigint> {
   const [fees, tax] = await Promise.all([
-    call(hook, PONS_SELECTORS.pendingFees + pad(poolId) + pad(token)),
-    call(hook, PONS_SELECTORS.pendingCreatorTax + pad(poolId) + pad(token)),
+    call(hook, ESCROW_SELECTORS.pendingFees + pad(poolId) + pad(token)),
+    call(hook, ESCROW_SELECTORS.pendingCreatorTax + pad(poolId) + pad(token)),
   ]);
   return big(fees) + big(tax);
 }
@@ -107,14 +111,14 @@ export async function pending(
  *
  * Both minimums are zero, and that is safe here only because this call is made
  * when no internal conversion is needed: a sweep that has to swap reverts for
- * anyone but Pons's own operator, so a zero minimum can never be the slippage
+ * anyone but the protocol's own operator, so a zero minimum is never the slippage
  * bound on a swap this desk executed. If that ever changes, these must become
  * real bounds before this call is sent again.
  */
 export function sweepCall(hook: string, poolId: string): UnsignedCall {
   return {
     to: hook,
-    data: PONS_SELECTORS.sweepPoolFees + pad(poolId) + uint(0n) + uint(0n),
+    data: ESCROW_SELECTORS.sweepPoolFees + pad(poolId) + uint(0n) + uint(0n),
     description: `sweep pool fees into escrow for ${poolId.slice(0, 10)}`,
   };
 }
@@ -123,7 +127,7 @@ export function sweepCall(hook: string, poolId: string): UnsignedCall {
 export function claimCall(escrow: string, token: string): UnsignedCall {
   return {
     to: escrow,
-    data: PONS_SELECTORS.claimToken + pad(token),
+    data: ESCROW_SELECTORS.claimToken + pad(token),
     description: `claim ${token.slice(0, 10)} from the fee escrow`,
   };
 }
