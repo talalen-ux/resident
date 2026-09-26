@@ -104,6 +104,19 @@ It reads the deployed vault and exits non-zero on anything wrong. **Do not
 continue past a failure.** Warnings about the launch are expected here — there
 is no launch yet.
 
+It signs nothing and needs no key, so it is safe to run against a live
+deployment as often as you like — and it runs in two places:
+
+- **Your own machine**, after `npm ci` and with `RESIDENT_RPC_URL` and
+  `RESIDENT_VAULT` set.
+- **Railway → your service → Console**, once step 6 is done. The variables are
+  already there, so it is just `npm run preflight`.
+
+The second one is the reason the vault's ABI is committed rather than compiled
+at startup: the container carries neither the Solidity compiler nor the
+contract source, and the check that gates a funding transaction should not be
+the one check that needs a development checkout.
+
 ## 6. Railway, no key
 
 Swap the paper variables for the real ones:

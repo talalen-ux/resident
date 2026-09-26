@@ -10,15 +10,22 @@
  * Exit code is non-zero if any check fails, so it can gate a funding
  * transaction in a script rather than relying on someone reading the output.
  *
- * The ABI comes from compiling the contract in this repo, not from a
- * hand-written selector table. If the deployed vault does not answer these,
- * the deployment and this source are not the same contract — which is exactly
- * what you want to find out before sending it money rather than after.
+ * The ABI is derived from the contract in this repo, not hand-written. If the
+ * deployed vault does not answer these, the deployment and this source are not
+ * the same contract — which is exactly what you want to find out before
+ * sending it money rather than after.
+ *
+ * It is read from the generated src/lib/vault-abi.ts rather than compiled
+ * here, so this runs in the keeper container too. The container carries
+ * neither solc nor contracts/, and the check that gates funding should not be
+ * the one check that needs a development checkout. test/abi.test.mjs
+ * recompiles the contract and fails if that file has drifted, so the binding
+ * to source is a build failure rather than an assumption.
  */
 
 import { Interface } from "ethers";
 
-import { compile } from "../test/harness.mjs";
+import { VAULT_ABI } from "../src/lib/vault-abi.ts";
 import { UNISWAP, requireChain } from "../src/lib/chain.ts";
 import { escrowOf } from "../src/lib/keeper/fee-escrow.ts";
 import { feesPointAt, launchOf } from "../src/lib/keeper/launch.ts";
@@ -41,8 +48,7 @@ try {
   process.exit(1);
 }
 
-const { artifacts } = compile();
-const iface = new Interface(artifacts.ResidentVault.abi);
+const iface = new Interface(VAULT_ABI);
 
 async function rpc(method, params = []) {
   const res = await fetch(config.rpcUrl, {
