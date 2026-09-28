@@ -105,6 +105,31 @@ for (const [name, address] of addressManifest(config)) {
     } else {
       console.log(bad(`${name.padEnd(28)} ${address}  NO CODE — wrong address or wrong chain`));
       failures++;
+      // The vault is the one address on this list the operator supplies, so it
+      // is the one that fails for reasons the generic line does not cover. The
+      // commonest is not a typo: the deployment transaction was sent and the
+      // wrong field was copied out of it. A receipt shows the sender, the hash
+      // and the created contract, and only the last of those is this.
+      if (name === "ResidentVault") {
+        console.log(`
+  RESIDENT_VAULT points at an address with no contract on it. Three causes,
+  in the order they actually happen:
+
+    1. The deployment was never sent. npm run deploy writes deploy.hex; that
+       file is a transaction somebody still has to broadcast and pay gas for.
+    2. It was sent, and the wrong field was copied. A deployment receipt shows
+       a sender, a transaction hash and a created contract address. Only the
+       last one is the vault. The hash is 32 bytes, so it will not fit here,
+       but the sender is 20 bytes and will.
+    3. It was sent on a different chain.
+
+  Check it yourself:
+    ${config.explorer}/address/${address}
+
+  A contract shows a Contract tab and a creation transaction. An empty account
+  shows neither, and that is what the node is reporting.
+`);
+      }
     }
   } catch (err) {
     console.log(bad(`${name.padEnd(28)} ${address}  ${err.message}`));
