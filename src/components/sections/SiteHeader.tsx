@@ -13,6 +13,9 @@ export function SiteHeader() {
         </Link>
       </div>
       <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-6">
+        <Link href="/holders" className="type-eyebrow inline-flex min-h-11 items-center text-text-secondary hover:text-text-primary">
+          Holders
+        </Link>
         <Link href="/positions" className="type-eyebrow inline-flex min-h-11 items-center text-text-secondary hover:text-text-primary">
           Positions
         </Link>
