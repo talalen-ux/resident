@@ -5,6 +5,7 @@ import { spotPrice } from "../sim/v3.ts";
 import type { TokenMeta } from "../sim/v3.ts";
 import { TOKENS, UNISWAP, isTradable, tickerFor } from "../chain.ts";
 import { deriveRates, usdPerQuote } from "./quotes.ts";
+import type { ExtraRegistry } from "./extra-tokens.ts";
 
 import type { PoolsSource } from "./pools-adapter.ts";
 
@@ -314,7 +315,12 @@ function priceFromSqrt(sqrtPriceX96: bigint, watched: WatchedPool) {
  */
 export async function discoverPools(
   rpcUrl: string,
-  opts: RpcPoolsOptions & { fromBlock?: number; toBlock?: number } = {},
+  opts: RpcPoolsOptions & {
+    fromBlock?: number;
+    toBlock?: number;
+    /** Tokens allowed beyond the canonical registry. See extra-tokens.ts. */
+    extra?: ExtraRegistry;
+  } = {},
 ): Promise<WatchedPool[]> {
   const rpc = jsonRpc(rpcUrl);
   const poolManager = opts.poolManager ?? UNISWAP.v4PoolManager;
@@ -347,8 +353,8 @@ export async function discoverPools(
     const tickSpacing = Number(signedWord(log.data, 1));
     const hooks = `0x${log.data.slice(2).slice(2 * 64 + 24, 3 * 64)}`;
 
-    const meta0 = tokenMeta(currency0);
-    const meta1 = tokenMeta(currency1);
+    const meta0 = tokenMeta(currency0, opts.extra);
+    const meta1 = tokenMeta(currency1, opts.extra);
     if (!meta0 || !meta1) continue;
 
     const key = { currency0, currency1, fee, tickSpacing, hooks };
@@ -365,12 +371,22 @@ export async function discoverPools(
  * a token that is not in the registry is not a candidate, and guessing 18
  * decimals for an unknown token silently mis-scales every figure downstream.
  */
-function tokenMeta(address: string): TokenMeta | null {
+function tokenMeta(address: string, extra?: ExtraRegistry): TokenMeta | null {
   const lower = address.toLowerCase();
-  if (lower === TOKENS.usdg.toLowerCase()) return { symbol: "USDG", decimals: 6 };
-  if (lower === TOKENS.weth.toLowerCase()) return { symbol: "WETH", decimals: 18 };
+  if (lower === TOKENS.usdg.toLowerCase()) {
+    return { symbol: "USDG", decimals: 6, address: lower };
+  }
+  if (lower === TOKENS.weth.toLowerCase()) {
+    return { symbol: "WETH", decimals: 18, address: lower };
+  }
 
   const ticker = tickerFor(address);
-  if (!ticker || !isTradable(address)) return null;
-  return { symbol: ticker, decimals: 18 };
+  if (ticker && isTradable(address)) {
+    return { symbol: ticker, decimals: 18, address: lower };
+  }
+
+  // The operator's own tier, whose symbols and decimals were read off the
+  // chain at startup rather than assumed. Consulted last so a canonical token
+  // can never be shadowed by an entry in a variable.
+  return extra?.get(lower) ?? null;
 }

@@ -58,6 +58,12 @@ import { DEFAULT_TICK, tick } from "../src/lib/keeper/loop.ts";
 import { loadState } from "../src/lib/keeper/registry.ts";
 import { ledgerFrom, ledgerTotals } from "../src/lib/keeper/ledger.ts";
 import { RpcPoolsSource, discoverPools } from "../src/lib/desk/rpc-pools-source.ts";
+import {
+  checkExtraGates,
+  gatesFrom,
+  parseExtraTokens,
+  resolveExtraTokens,
+} from "../src/lib/desk/extra-tokens.ts";
 import { realisedVolatility } from "../src/lib/sim/strategy.ts";
 import { liquidityInBand } from "../src/lib/sim/opportunity.ts";
 
@@ -114,6 +120,17 @@ const KEEPER_ADDRESS = process.env.RESIDENT_KEEPER_ADDRESS;
 const VAULT = process.env.RESIDENT_VAULT;
 
 /**
+ * Tokens the operator has allowed beyond the canonical registry.
+ *
+ * tokens.ts answers "is this the canonical Robinhood Stock Token", which is
+ * the wrong question for a desk whose job is to be where the volume is: on
+ * this chain most of the volume is in tokens it has never heard of. This is
+ * the way in, and it is gated harder than the canonical tier because what that
+ * tier has and this one does not is somebody having checked.
+ */
+const EXTRA = { registry: new Map(), gates: gatesFrom(), failed: [] };
+
+/**
  * Refuse an incoherent configuration before the first tick.
  *
  * The chain id is read first so the mainnet check is against what the node
@@ -126,6 +143,24 @@ try {
   reportedChainId = Number(await rpc("eth_chainId", []));
 } catch {
   reportedChainId = undefined;
+}
+
+// Read symbol() and decimals() for the operator's tier before anything ranks.
+// Guessing either silently mis-scales every figure downstream, and a
+// mis-scaled figure does not look wrong, it looks profitable.
+try {
+  const addresses = parseExtraTokens(process.env.RESIDENT_EXTRA_TOKENS);
+  if (addresses.length) {
+    const resolved = await resolveExtraTokens(
+      (to, data) => rpc("eth_call", [{ to, data }, "latest"]),
+      addresses,
+    );
+    EXTRA.registry = resolved.registry;
+    EXTRA.failed = resolved.failed;
+  }
+} catch (error) {
+  console.error(`\n  ${error.message}\n`);
+  process.exit(1);
 }
 
 const configVerdict = checkConfig({
@@ -149,14 +184,22 @@ if (!configVerdict.ok) {
 
 console.log(`  mode      ${configVerdict.mode}`);
 
+// Discovery replays every Initialize log from block 0, so it is cached. The
+// cache is keyed on the token set that produced it: a pool is only discovered
+// if both its tokens were known at the time, so reusing a cache built without
+// a token means adding that token appears to do nothing at all.
 const CACHE = ".pools.json";
+const cacheKey = [...EXTRA.registry.keys()].sort().join(",");
 let watched;
-if (existsSync(CACHE)) {
-  watched = JSON.parse(readFileSync(CACHE, "utf8"));
+const cached = existsSync(CACHE) ? JSON.parse(readFileSync(CACHE, "utf8")) : null;
+if (cached && cached.key === cacheKey) {
+  watched = cached.pools;
 } else {
-  process.stdout.write("  scanning Initialize logs… ");
-  watched = await discoverPools(RPC);
-  writeFileSync(CACHE, JSON.stringify(watched, null, 2));
+  process.stdout.write(
+    cached ? "  token set changed, rescanning Initialize logs… " : "  scanning Initialize logs… ",
+  );
+  watched = await discoverPools(RPC, { extra: EXTRA.registry });
+  writeFileSync(CACHE, JSON.stringify({ key: cacheKey, pools: watched }, null, 2));
   console.log(`found ${watched.length} pools`);
 }
 
@@ -327,19 +370,52 @@ const execute = VAULT
  * scanner refuses a pool without it, so a pool whose history is too short to
  * measure is skipped and reported rather than priced as calm.
  */
+let lastDropped = [];
+
 function toScannedPools(observations) {
   const pools = [];
+  const dropped = [];
+  const name = (obs) => `${obs.pool.token0.symbol}/${obs.pool.token1.symbol}`;
+
   for (const obs of observations) {
     const prices = obs.prices ?? [];
-    if (prices.length < 20) continue;
+    if (prices.length < 20) {
+      dropped.push({ name: name(obs), reason: `${prices.length} price samples, needs 20` });
+      continue;
+    }
     const volatility = realisedVolatility(prices);
-    if (!(volatility > 0)) continue;
+    if (!(volatility > 0)) {
+      dropped.push({ name: name(obs), reason: "no measured volatility, so no measured bleed" });
+      continue;
+    }
 
     // Both figures are in whatever the pool is quoted in, and the sizing and
     // allocation rules below are in dollars. A pool whose quote could not be
     // priced is skipped rather than converted at a made-up rate.
     const usd = obs.quoteUsd;
-    if (!(usd > 0)) continue;
+    if (!(usd > 0)) {
+      dropped.push({ name: name(obs), reason: "quote asset could not be priced" });
+      continue;
+    }
+
+    const liquidityUsd = liquidityInBand(obs.pool, 0.05) * usd;
+
+    // The extra tier is gated harder than the canonical one, because what the
+    // canonical tier has and this one does not is somebody having checked. A
+    // pool is in the extra tier when either side is.
+    const extraSide =
+      EXTRA.registry.has(obs.pool.token0.address ?? "") ||
+      EXTRA.registry.has(obs.pool.token1.address ?? "");
+    if (extraSide) {
+      const verdict = checkExtraGates(
+        { ageMinutes: obs.ageMinutes, hasHook: obs.hasHook, liquidityUsd },
+        EXTRA.gates,
+      );
+      if (!verdict.ok) {
+        dropped.push({ name: name(obs), reason: verdict.reason });
+        continue;
+      }
+    }
 
     pools.push({
       name: `${obs.pool.token0.symbol}/${obs.pool.token1.symbol}`,
@@ -347,12 +423,12 @@ function toScannedPools(observations) {
       kind: "band",
       volume: (obs.volume.h1 / 60) * usd,
       volatility,
-      liquidity: liquidityInBand(obs.pool, 0.05) * usd,
+      liquidity: liquidityUsd,
       feePips: obs.pool.fee,
       prices,
     });
   }
-  return pools;
+  return { pools, dropped };
 }
 
 const deps = {
@@ -368,7 +444,8 @@ const deps = {
     : async () => ({ found: null }),
   observe: async () => {
     const observations = await source.observe();
-    const pools = toScannedPools(observations);
+    const { pools, dropped } = toScannedPools(observations);
+    lastDropped = dropped;
 
     // Without a vault there is nothing to read a balance or a position from,
     // and inventing either would put the decision engine to work on fiction.
@@ -830,6 +907,18 @@ if (KEY) {
   );
 }
 console.log(`  chain     ${reportedChainId ?? "unread"}`);
+if (EXTRA.registry.size || EXTRA.failed.length) {
+  const names = [...EXTRA.registry.values()].map((t) => t.symbol).join(", ");
+  console.log(
+    `  extra     ${EXTRA.registry.size} token(s)${names ? `: ${names}` : ""} — ` +
+      `min ${(EXTRA.gates.minAgeMinutes / 60).toFixed(0)}h old, ` +
+      `${EXTRA.gates.minLiquidityUsd.toLocaleString()} in band` +
+      `${EXTRA.gates.rejectHooks ? ", no hooks" : ", hooks allowed"}`,
+  );
+  for (const { address, reason } of EXTRA.failed) {
+    console.log(`            ! ${address} not added: ${reason}`);
+  }
+}
 console.log(`  interval  ${intervalSeconds}s${once ? " (once)" : ""}`);
 for (const note of configVerdict.notes) {
   console.log(`\n  note: ${note}`);
@@ -883,6 +972,12 @@ async function runOnce() {
   }
   if (report.scan?.skipped.length) {
     console.log(`          ${report.scan.skipped.length} skipped (unpriceable)`);
+  }
+  // Why a pool never reached the board at all. Without this a token the
+  // operator added on purpose vanishes silently, which reads as a chain with
+  // no volume rather than as a gate doing its job.
+  for (const { name, reason } of lastDropped) {
+    console.log(`          - ${name.padEnd(16)} ${reason}`);
   }
 }
 

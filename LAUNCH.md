@@ -289,7 +289,46 @@ The escrow address is not configured anywhere — it is read off the hook, which
 exposes it as an immutable public. Get it from `npm run preflight`, which
 prints both once `RESIDENT_LAUNCH_HOOK` is set.
 
-## 15. The control console
+## 15. Trading tokens beyond the stock registry
+
+The desk's token registry is the 194 canonical Robinhood Stock Tokens. That is
+the right answer to "is this really AAPL" and the wrong answer to "where is the
+volume" — on this chain most of the turnover is in tokens that registry has
+never heard of, and a board that cannot see them cannot rank them.
+
+| Variable | Value |
+|---|---|
+| `RESIDENT_EXTRA_TOKENS` | comma-separated token addresses |
+| `RESIDENT_EXTRA_MIN_AGE_MINUTES` | default `1440` (24h) |
+| `RESIDENT_EXTRA_MIN_LIQUIDITY` | default `250000` (dollars in band) |
+| `RESIDENT_EXTRA_ALLOW_HOOKS` | `1` to permit pools running a v4 hook |
+
+Addresses only. Symbols and decimals are read off the chain at startup,
+because guessing 18 decimals for a token that uses 6 reports a balance a
+trillion times too large and nothing about it looks wrong.
+
+**This tier is gated harder than the canonical one, on purpose.** What the
+canonical tier has and this one does not is somebody having checked. A
+canonical token cannot be a honeypot with a transfer tax; one of these can be
+anything that was pasted into a variable. The floors stand in for the check
+that is missing:
+
+- **24 hours old.** Removes the class a volume screener rewards most — a pool
+  hours old showing five figures of percentage change, where the volume is
+  real and the prices it traded at are not something a range could have been
+  quoted around.
+- **$250,000 in band.** Below that the position becomes the book.
+- **No v4 hook.** A hook can take the LP's fee. Allow them only for a hook you
+  have read.
+
+Raise the floors before you lower them. Everything here is a position the vault
+will hold with real money, chosen by a list rather than by documentation.
+
+Adding a token forces a rediscovery of pools, because a pool is only found when
+both its tokens were known at the time. The keeper notices and rescans; it
+prints `token set changed, rescanning Initialize logs`.
+
+## 16. The control console
 
 Optional, and the last thing to set up. Manual override for an opportunity the
 board has not priced, or a position that has become a risk for a reason no
