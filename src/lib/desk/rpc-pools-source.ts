@@ -44,6 +44,15 @@ export type WatchedPool = {
   key: PoolKey;
   token0: TokenMeta;
   token1: TokenMeta;
+  /**
+   * The block the pool was initialised at, when discovery recorded it.
+   *
+   * Discovery finds pools by reading Initialize logs, and those logs say which
+   * block. Searching for it again per pool — 25 chunked queries each, 150
+   * pools a tick — was asking the node to tell us something already written
+   * down.
+   */
+  block?: number;
 };
 
 export type RpcPoolsOptions = {
@@ -280,9 +289,12 @@ export class RpcPoolsSource implements PoolsSource {
     this.poolManager = opts.poolManager ?? UNISWAP.v4PoolManager;
     this.maxBlockSpan = opts.maxBlockSpan ?? 10_000;
     this.ageSearchBlocks = opts.ageSearchBlocks ?? 250_000;
-    // State reads per tick. The board only ever acts on a handful, and a tick
-    // that does not finish inside its interval is a desk that never decides.
-    this.maxPools = opts.maxPools ?? 150;
+    // State reads per tick. Each pool costs several calls, so this is the
+    // number that decides whether a tick fits in its interval. The board only
+    // ever acts on a handful and they are the ones with the flow, so the tail
+    // costs nothing to be late to — while a tick that does not finish is a
+    // desk that never decides anything at all.
+    this.maxPools = opts.maxPools ?? 40;
     this.pauseMs = opts.pauseMs ?? 0;
     this.windowSeconds = opts.windowSeconds ?? 3_600;
   }
@@ -416,7 +428,7 @@ export class RpcPoolsSource implements PoolsSource {
         pool,
         volume,
         peak24h: peakSqrt > 0n ? priceFromSqrt(peakSqrt, watched) : 0,
-        ageMinutes: await this.ageMinutes(id, head, spb),
+        ageMinutes: await this.ageMinutes(id, head, spb, watched.block),
         hasHook: hasHook(watched.key),
         // Scoring who is winning needs per-wallet position history over days.
         // Zero here means "not measured", and the board's LPs-winning gate will
@@ -437,7 +449,13 @@ export class RpcPoolsSource implements PoolsSource {
   }
 
   /** Blocks back to the pool's Initialize event, bounded. */
-  private async ageMinutes(id: string, head: number, spb: number) {
+  private async ageMinutes(id: string, head: number, spb: number, known?: number) {
+    // Discovery already read the Initialize log that created this pool, and
+    // that log carried its block. Asking the node again — 25 chunked queries
+    // per pool, 150 pools a tick — was the largest single cost in a tick, for
+    // a number already on disk.
+    if (known !== undefined && known > 0) return ((head - known) * spb) / 60;
+
     const from = Math.max(0, head - this.ageSearchBlocks);
     const logs = await getLogsChunked(
       this.rpc,
@@ -669,11 +687,11 @@ export async function discoverRawPools(
  */
 export function watchable(raw: RawPool[], extra?: ExtraRegistry): WatchedPool[] {
   const found = new Map<string, WatchedPool>();
-  for (const { key } of raw) {
+  for (const { key, block } of raw) {
     const token0 = tokenMeta(key.currency0, extra);
     const token1 = tokenMeta(key.currency1, extra);
     if (!token0 || !token1) continue;
-    found.set(poolId(key), { key, token0, token1 });
+    found.set(poolId(key), { key, token0, token1, block });
   }
   return [...found.values()];
 }

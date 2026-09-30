@@ -260,7 +260,7 @@ const watched = watchable(raw, EXTRA.registry);
 console.log(`  watching  ${watched.length} of ${raw.length} pools the token set allows`);
 
 const source = new RpcPoolsSource(RPC, watched, {
-  maxPools: Number(process.env.RESIDENT_MAX_POOLS ?? 150),
+  maxPools: Number(process.env.RESIDENT_MAX_POOLS ?? 40),
   pauseMs: Number(process.env.RESIDENT_SCAN_PAUSE_MS ?? 120),
   // The board reads the one-hour volume and the price series and nothing
   // longer, so an hour is what gets read. A day was twenty-four times the data

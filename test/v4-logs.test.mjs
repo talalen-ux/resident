@@ -293,3 +293,43 @@ test("the same pool initialised twice is listed once", async () => {
   const pools = await discoverWith([log, { ...log, blockNumber: "0x2" }]);
   assert.equal(pools.length, 1);
 });
+
+test("a pool's age comes from discovery, not from asking again", async () => {
+  // Discovery reads the Initialize log that creates a pool, and that log says
+  // which block. Searching for it again cost 25 chunked queries per pool, 40
+  // pools a tick, for a number already on disk — the largest single cost in a
+  // tick and the reason every one of them rate limited.
+  const head = 100_000;
+  const original = globalThis.fetch;
+  let initialiseQueries = 0;
+  const stub = stubFetch({ head, swaps: [traded] });
+  globalThis.fetch = async (url, init) => {
+    const { method, params } = JSON.parse(init.body);
+    if (method === "eth_getLogs" && params[0].topics[0] === V4_TOPICS.initialize) {
+      initialiseQueries++;
+    }
+    return stub(url, init);
+  };
+  try {
+    const source = new RpcPoolsSource(
+      "http://stub",
+      [{ key: KEY, token0: STOCK, token1: USDG, block: head - 300 }],
+      { maxBlockSpan: 1_000_000, ageSearchBlocks: 50_000 },
+    );
+    const [obs] = await source.observe();
+    assert.equal(Math.round(obs.ageMinutes), 10, "300 blocks x 2s");
+    assert.equal(initialiseQueries, 0, "the node was not asked");
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test("a pool with no recorded block still falls back to searching", async () => {
+  // Cached before the block was recorded, or discovered some other way. The
+  // number matters more than where it came from.
+  const head = 100_000;
+  const [obs] = await observeWith(
+    stubFetch({ head, initAt: head - 600, swaps: [traded] }),
+  );
+  assert.equal(Math.round(obs.ageMinutes), 20);
+});
