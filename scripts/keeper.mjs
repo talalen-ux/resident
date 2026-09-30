@@ -58,7 +58,11 @@ import { MAINNET, TOKENS, UNISWAP } from "../src/lib/chain.ts";
 import { DEFAULT_TICK, tick } from "../src/lib/keeper/loop.ts";
 import { loadState } from "../src/lib/keeper/registry.ts";
 import { ledgerFrom, ledgerTotals } from "../src/lib/keeper/ledger.ts";
-import { RpcPoolsSource, discoverPools } from "../src/lib/desk/rpc-pools-source.ts";
+import {
+  RpcPoolsSource,
+  discoverRawPools,
+  watchable,
+} from "../src/lib/desk/rpc-pools-source.ts";
 import {
   checkExtraGates,
   gatesFrom,
@@ -193,29 +197,26 @@ console.log(`  mode      ${configVerdict.mode}`);
 //
 // This was written to the working directory, which a redeploy replaces — so
 // discovery replayed every Initialize log from genesis on every deploy, which
-// is hundreds of eth_getLogs calls, which is what the node was rate limiting.
-// The cache only earns its keep if it outlives the container, and the volume
-// is the thing that does.
+// is thousands of eth_getLogs calls, which is what the node was rate limiting.
+// A cache only earns its keep if it outlives the container, and the volume is
+// the thing that does.
+//
+// What is cached is what the CHAIN said, not what the current token set makes
+// of it. Filtering is free and happens every boot; scanning is not and happens
+// once. Keyed the other way round, allowing a new token meant replaying the
+// entire chain to rediscover pools the scan had already seen and discarded —
+// a 25-minute penalty for adding a token, which is a reason not to add one.
 const CACHE = join(dirname(journalPath), "pools.json");
-const cacheKey = [...EXTRA.registry.keys()].sort().join(",");
-let watched;
 const cached = existsSync(CACHE) ? JSON.parse(readFileSync(CACHE, "utf8")) : null;
-if (cached && cached.key === cacheKey) {
-  watched = cached.pools;
-  console.log(`  pools     ${watched.length} from ${CACHE}`);
-} else {
-  console.log(
-    cached
-      ? "  pools     token set changed, rescanning Initialize logs"
-      : "  pools     scanning Initialize logs (first run; cached on the volume afterwards)",
-  );
-  // Paced rather than as fast as the node will answer. A scan this long that
-  // trips the limiter spends most of its time serving out penalties, and the
-  // keeper has nothing to do until it finishes.
+
+let raw = cached?.pools ?? [];
+let scannedTo = cached?.scannedTo ?? null;
+
+const scan = async (fromBlock, note) => {
+  console.log(`  pools     ${note}`);
   let lastReport = 0;
-  watched = await discoverPools(RPC, {
-    extra: EXTRA.registry,
-    fromBlock: Number(process.env.RESIDENT_POOLS_FROM_BLOCK ?? 0),
+  const found = await discoverRawPools(RPC, {
+    ...(fromBlock === null ? {} : { fromBlock }),
     pauseMs: Number(process.env.RESIDENT_SCAN_PAUSE_MS ?? 120),
     onDeployBlock: (block, reason) =>
       console.log(
@@ -225,16 +226,35 @@ if (cached && cached.key === cacheKey) {
           : `            PoolManager deployed at block ${block.toLocaleString()}`,
       ),
     onProgress: (done, total) => {
-      // Every 5%, so a scan of hundreds of chunks reports without flooding.
       const pct = Math.floor((done / total) * 20);
       if (pct === lastReport) return;
       lastReport = pct;
       console.log(`            ${done}/${total} chunks (${Math.round((done / total) * 100)}%)`);
     },
   });
-  writeFileSync(CACHE, JSON.stringify({ key: cacheKey, pools: watched }, null, 2));
-  console.log(`  pools     found ${watched.length}`);
+  // Merge by pool id: a chunk boundary can hand back a log already held.
+  const byId = new Map(raw.map((p) => [poolIdOf(p.key), p]));
+  for (const pool of found.pools) byId.set(poolIdOf(pool.key), pool);
+  raw = [...byId.values()];
+  scannedTo = found.scannedTo;
+  writeFileSync(CACHE, JSON.stringify({ scannedTo, pools: raw }, null, 2));
+  console.log(`  pools     ${raw.length} known, scanned to block ${scannedTo.toLocaleString()}`);
+};
+
+const floor = process.env.RESIDENT_POOLS_FROM_BLOCK
+  ? Number(process.env.RESIDENT_POOLS_FROM_BLOCK)
+  : null;
+
+if (scannedTo === null) {
+  await scan(floor, "scanning Initialize logs (first run; cached on the volume afterwards)");
+} else {
+  // Forward only. Everything before scannedTo is already in the cache, whether
+  // or not the token set of the day wanted it.
+  await scan(scannedTo + 1, `${raw.length} cached, scanning forward from ${(scannedTo + 1).toLocaleString()}`);
 }
+
+const watched = watchable(raw, EXTRA.registry);
+console.log(`  watching  ${watched.length} of ${raw.length} pools the token set allows`);
 
 const source = new RpcPoolsSource(RPC, watched);
 const journal = new FileJournal(journalPath);

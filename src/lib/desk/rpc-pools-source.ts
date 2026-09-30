@@ -451,16 +451,9 @@ export async function discoverPools(
   const found = new Map<string, WatchedPool>();
 
   for (const log of logs) {
-    // topics: [signature, id, currency0, currency1]
-    const [, , t1, t2] = log.topics;
-    if (!t1 || !t2) continue;
-    const currency0 = `0x${t1.slice(-40)}`;
-    const currency1 = `0x${t2.slice(-40)}`;
-
-    // data: fee, tickSpacing, hooks, sqrtPriceX96, tick
-    const fee = Number(signedWord(log.data, 0));
-    const tickSpacing = Number(signedWord(log.data, 1));
-    const hooks = `0x${log.data.slice(2).slice(2 * 64 + 24, 3 * 64)}`;
+    const raw = rawFrom(log);
+    if (!raw) continue;
+    const { currency0, currency1, fee, tickSpacing, hooks } = raw.key;
 
     const meta0 = tokenMeta(currency0, opts.extra);
     const meta1 = tokenMeta(currency1, opts.extra);
@@ -470,6 +463,105 @@ export async function discoverPools(
     found.set(poolId(key), { key, token0: meta0, token1: meta1 });
   }
 
+  return [...found.values()];
+}
+
+/** One pool, as the chain described it, before any token set had an opinion. */
+export type RawPool = { key: PoolKey; block: number };
+
+/** Decode an Initialize log, or null if it is not one we can read. */
+function rawFrom(log: { data: string; blockNumber?: string; topics: string[] }): RawPool | null {
+  // topics: [signature, id, currency0, currency1]
+  const [, , t1, t2] = log.topics;
+  if (!t1 || !t2) return null;
+  const currency0 = `0x${t1.slice(-40)}`;
+  const currency1 = `0x${t2.slice(-40)}`;
+
+  // data: fee, tickSpacing, hooks, sqrtPriceX96, tick
+  const fee = Number(signedWord(log.data, 0));
+  const tickSpacing = Number(signedWord(log.data, 1));
+  const hooks = `0x${log.data.slice(2).slice(2 * 64 + 24, 3 * 64)}`;
+
+  return {
+    key: { currency0, currency1, fee, tickSpacing, hooks },
+    block: log.blockNumber ? Number(BigInt(log.blockNumber)) : 0,
+  };
+}
+
+/**
+ * Every pool the chain has, unfiltered, and how far the scan got.
+ *
+ * Kept separate from the token filter on purpose. Discovery is the expensive
+ * half — thousands of chunked eth_getLogs calls — and the filter is free. When
+ * the two were one step, the cache held only what that day's token set
+ * allowed, so allowing a new token meant replaying the entire chain to find
+ * pools the scan had already seen and thrown away.
+ *
+ * Cache what the chain said. Decide what to do with it on every boot.
+ */
+export async function discoverRawPools(
+  rpcUrl: string,
+  opts: RpcPoolsOptions & {
+    fromBlock?: number;
+    toBlock?: number;
+    pauseMs?: number;
+    onProgress?: (done: number, total: number) => void;
+    onDeployBlock?: (block: number | null, reason?: string) => void;
+  } = {},
+): Promise<{ pools: RawPool[]; scannedTo: number }> {
+  const rpc = jsonRpc(rpcUrl);
+  const poolManager = opts.poolManager ?? UNISWAP.v4PoolManager;
+  const maxSpan = opts.maxBlockSpan ?? 10_000;
+
+  const head =
+    opts.toBlock ?? Number(BigInt(await rpc<string>("eth_blockNumber", [])));
+
+  let from = opts.fromBlock ?? 0;
+  if (opts.fromBlock === undefined) {
+    const deployed = await firstBlockWithCode(rpc, poolManager, head);
+    if (deployed.block !== null) {
+      from = deployed.block;
+      opts.onDeployBlock?.(deployed.block);
+    } else {
+      opts.onDeployBlock?.(null, deployed.reason);
+    }
+  }
+
+  if (from > head) return { pools: [], scannedTo: head };
+
+  const logs = await getLogsChunked(
+    rpc,
+    poolManager,
+    [V4_TOPICS.initialize],
+    from,
+    head,
+    maxSpan,
+    opts.pauseMs ?? 0,
+    opts.onProgress,
+  );
+
+  const pools = [];
+  for (const log of logs) {
+    const raw = rawFrom(log);
+    if (raw) pools.push(raw);
+  }
+  return { pools, scannedTo: head };
+}
+
+/**
+ * The pools the desk can actually watch, given the tokens it is allowed.
+ *
+ * Free, so it runs every boot against the whole cache rather than being baked
+ * into it. Allowing a token is then a restart, not a rescan.
+ */
+export function watchable(raw: RawPool[], extra?: ExtraRegistry): WatchedPool[] {
+  const found = new Map<string, WatchedPool>();
+  for (const { key } of raw) {
+    const token0 = tokenMeta(key.currency0, extra);
+    const token1 = tokenMeta(key.currency1, extra);
+    if (!token0 || !token1) continue;
+    found.set(poolId(key), { key, token0, token1 });
+  }
   return [...found.values()];
 }
 
