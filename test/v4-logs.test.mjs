@@ -81,14 +81,14 @@ function stubFetch({ head = 100_000, swaps = [], initAt = null }) {
   };
 }
 
-async function observeWith(stub) {
+async function observeWith(stub, opts = {}) {
   const original = globalThis.fetch;
   globalThis.fetch = stub;
   try {
     const source = new RpcPoolsSource(
       "http://stub",
       [{ key: KEY, token0: STOCK, token1: USDG }],
-      { maxBlockSpan: 1_000_000, ageSearchBlocks: 50_000 },
+      { maxBlockSpan: 1_000_000, ageSearchBlocks: 50_000, ...opts },
     );
     return await source.observe();
   } finally {
@@ -97,6 +97,8 @@ async function observeWith(stub) {
 }
 
 test("volume windows are bucketed by how long ago the swap was", async () => {
+  // A day is asked for explicitly: the default window is an hour, because the
+  // board reads nothing longer and a day is 24x the data for the same answer.
   const head = 100_000;
   // 2s per block: 5m = 150 blocks, 1h = 1800, 6h = 10800, 24h = 43200.
   const [obs] = await observeWith(
@@ -110,12 +112,33 @@ test("volume windows are bucketed by how long ago the swap was", async () => {
         { block: head - 60_000, amount1: 99_000_000n }, // older, excluded
       ],
     }),
+    { windowSeconds: 86_400 },
   );
 
   assert.equal(obs.volume.m5, 1);
   assert.equal(obs.volume.h1, 3);
   assert.equal(obs.volume.h6, 7);
   assert.equal(obs.volume.h24, 15);
+  assert.equal(obs.windowSeconds, 86_400, "the observation says what it read");
+});
+
+test("a bucket never claims a span the window did not cover", async () => {
+  // With the default hour, h24 is an hour's total. Reporting it as a day would
+  // make a quiet pool look like it had been measured for one and found quiet,
+  // which is the difference between a reading and an absence of one.
+  const head = 100_000;
+  const [obs] = await observeWith(
+    stubFetch({
+      head,
+      swaps: [
+        { block: head - 50, amount1: 1_000_000n }, // inside the hour
+        { block: head - 40_000, amount1: 8_000_000n }, // a day ago, not read
+      ],
+    }),
+  );
+  assert.equal(obs.volume.h1, 1);
+  assert.equal(obs.volume.h24, 1, "not 9: the older swap was never fetched");
+  assert.equal(obs.windowSeconds, 3_600);
 });
 
 test("sells count toward volume as much as buys", async () => {

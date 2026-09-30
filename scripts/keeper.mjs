@@ -262,6 +262,10 @@ console.log(`  watching  ${watched.length} of ${raw.length} pools the token set 
 const source = new RpcPoolsSource(RPC, watched, {
   maxPools: Number(process.env.RESIDENT_MAX_POOLS ?? 150),
   pauseMs: Number(process.env.RESIDENT_SCAN_PAUSE_MS ?? 120),
+  // The board reads the one-hour volume and the price series and nothing
+  // longer, so an hour is what gets read. A day was twenty-four times the data
+  // for the same decision, every minute.
+  windowSeconds: Number(process.env.RESIDENT_WINDOW_SECONDS ?? 3600),
 });
 const journal = new FileJournal(journalPath);
 const rpc = jsonRpc(RPC);

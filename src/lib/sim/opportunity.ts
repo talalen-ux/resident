@@ -49,6 +49,14 @@ export type PoolObservation = {
   /** Signed quote flow over the last hour: buys less sells, in quote units. */
   flow1h?: number;
   /**
+   * How far back the swaps behind these figures were read.
+   *
+   * Buckets longer than this equal the window rather than the span their name
+   * suggests. Absent means the source did not say, which is not the same as a
+   * full day.
+   */
+  windowSeconds?: number;
+  /**
    * Dollars per whole unit of the pool's quote asset.
    *
    * Everything a pool reports about itself is denominated in whatever it is

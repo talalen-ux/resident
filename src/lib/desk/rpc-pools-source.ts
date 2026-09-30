@@ -59,6 +59,17 @@ export type RpcPoolsOptions = {
   maxPools?: number;
   /** Milliseconds between log chunks, to stay under the node's rate limit. */
   pauseMs?: number;
+  /**
+   * How far back each tick reads swaps. Default one hour.
+   *
+   * The board consumes the one-hour volume and the price series and nothing
+   * longer, so a day's window fetched twenty-four times the data it used —
+   * every minute, on a chain busy enough that a day of swaps does not fit in
+   * one query and barely fits in memory. Longer buckets can only report what
+   * the window covers, and `windowSeconds` on each observation says what that
+   * was rather than letting h24 imply a day it never read.
+   */
+  windowSeconds?: number;
 };
 
 // The retrying caller, shared with the chain verifier. This file used to have
@@ -254,6 +265,7 @@ export class RpcPoolsSource implements PoolsSource {
   private readonly ageSearchBlocks: number;
   private readonly maxPools: number;
   private readonly pauseMs: number;
+  private readonly windowSeconds: number;
   /** Pools that traded in the window, before maxPools trimmed the tail. */
   lastActive = 0;
 
@@ -272,6 +284,7 @@ export class RpcPoolsSource implements PoolsSource {
     // that does not finish inside its interval is a desk that never decides.
     this.maxPools = opts.maxPools ?? 150;
     this.pauseMs = opts.pauseMs ?? 0;
+    this.windowSeconds = opts.windowSeconds ?? 3_600;
   }
 
   async observe(): Promise<PoolObservation[]> {
@@ -320,7 +333,7 @@ export class RpcPoolsSource implements PoolsSource {
     const head = Number(BigInt(await this.rpc<string>("eth_blockNumber", [])));
     const spb = await secondsPerBlock(this.rpc, head);
     const blocksFor = (seconds: number) => Math.max(1, Math.round(seconds / spb));
-    const from24h = Math.max(0, head - blocksFor(86_400));
+    const window = Math.max(0, head - blocksFor(this.windowSeconds));
 
     const watchedById = new Map(this.pools.map((w) => [poolId(w.key), w]));
 
@@ -328,7 +341,7 @@ export class RpcPoolsSource implements PoolsSource {
       this.rpc,
       this.poolManager,
       [V4_TOPICS.swap],
-      from24h,
+      window,
       head,
       this.maxBlockSpan,
       this.pauseMs,
@@ -360,10 +373,13 @@ export class RpcPoolsSource implements PoolsSource {
       // Volume is the quote side, so token1's amount, in its own decimals.
       const quoteDecimals = watched.token1.decimals;
       const scale = 10 ** quoteDecimals;
+      // Each cut is clamped to the window, so a bucket never claims a span
+      // that was not read. With the default hour, h6 and h24 equal h1 — true,
+      // and visible through windowSeconds rather than implied away.
       const cut = {
-        m5: head - blocksFor(300),
-        h1: head - blocksFor(3_600),
-        h6: head - blocksFor(21_600),
+        m5: Math.max(window, head - blocksFor(300)),
+        h1: Math.max(window, head - blocksFor(3_600)),
+        h6: Math.max(window, head - blocksFor(21_600)),
       };
 
       const volume: VolumeWindows = { m5: 0, h1: 0, h6: 0, h24: 0 };
@@ -412,6 +428,7 @@ export class RpcPoolsSource implements PoolsSource {
         prices: samplePrices(track, 120),
         swaps1h,
         flow1h,
+        windowSeconds: this.windowSeconds,
       });
     }
 
