@@ -316,16 +316,31 @@ export class RpcPoolsSource implements PoolsSource {
     // cannot be priced keep quoteUsd undefined, which fails a gate rather than
     // being measured against dollar thresholds in the wrong unit.
     const rates = deriveRates(
-      observations.map((o) => ({
-        base: o.pool.token0.symbol,
-        quote: o.pool.token1.symbol,
-        price: spotPrice(o.pool),
-        volume24h: o.volume.h24,
-      })),
+      observations.map((o) => {
+        // spotPrice is token1 per token0. When the quote is token0 the market
+        // reads the other way round, and quoting it as-is would have every
+        // stock priced in its own units.
+        const quoteIsToken1 = !o.pool.stockIsToken1;
+        const price = spotPrice(o.pool);
+        return quoteIsToken1
+          ? {
+              base: o.pool.token0.symbol,
+              quote: o.pool.token1.symbol,
+              price,
+              volume24h: o.volume.h24,
+            }
+          : {
+              base: o.pool.token1.symbol,
+              quote: o.pool.token0.symbol,
+              price: price > 0 ? 1 / price : 0,
+              volume24h: o.volume.h24,
+            };
+      }),
     );
 
     for (const o of observations) {
-      const rate = usdPerQuote(o.pool.token1.symbol, rates);
+      const quote = o.pool.stockIsToken1 ? o.pool.token0 : o.pool.token1;
+      const rate = usdPerQuote(quote.symbol, rates);
       if (rate !== null) o.quoteUsd = rate;
     }
 
@@ -406,10 +421,12 @@ export class RpcPoolsSource implements PoolsSource {
 
       const pool = await readV4Pool(reader, watched.key, watched.token0, watched.token1);
 
-      // Swap data words: amount0, amount1, sqrtPriceX96, liquidity, tick, fee.
-      // Volume is the quote side, so token1's amount, in its own decimals.
-      const quoteDecimals = watched.token1.decimals;
-      const scale = 10 ** quoteDecimals;
+      // Uniswap orders a pool's tokens by address, so which side the quote
+      // lands on is arbitrary. Roughly half the USDG pools on this chain have
+      // USDG as token0, and reading token1 as the quote regardless measured
+      // those in stock units and then failed to price them at all.
+      const quoteIsToken1 = quoteSide(watched) === 1;
+      const scale = 10 ** (quoteIsToken1 ? watched.token1.decimals : watched.token0.decimals);
       // Each cut is clamped to the window, so a bucket never claims a span
       // that was not read. With the default hour, h6 and h24 equal h1 — true,
       // and visible through windowSeconds rather than implied away.
@@ -427,8 +444,9 @@ export class RpcPoolsSource implements PoolsSource {
 
       for (const log of logs) {
         const block = Number(BigInt(log.blockNumber));
-        const amount1 = signedWord(log.data, 1);
-        const traded = Number(amount1 < 0n ? -amount1 : amount1) / scale;
+        // Swap data words: amount0, amount1, sqrtPriceX96, liquidity, tick, fee.
+        const amountQuote = signedWord(log.data, quoteIsToken1 ? 1 : 0);
+        const traded = Number(amountQuote < 0n ? -amountQuote : amountQuote) / scale;
 
         volume.h24 += traded;
         if (block >= cut.h6) volume.h6 += traded;
@@ -440,7 +458,7 @@ export class RpcPoolsSource implements PoolsSource {
           // Sign is taken from the quote side: quote leaving the pool is the
           // token being bought. The convention is the pool's, so this is signed
           // the same way the pool signs it rather than the way it reads.
-          flow1h += -Number(amount1) / scale;
+          flow1h += -Number(amountQuote) / scale;
         }
 
         const sqrt = BigInt(`0x${log.data.slice(2).slice(2 * 64, 3 * 64)}`);
@@ -609,6 +627,23 @@ export async function discoverPools(
   }
 
   return [...found.values()];
+}
+
+/**
+ * Which side of a pool is the quote asset: 0 or 1.
+ *
+ * Uniswap orders currencies by address, so a USDG pool is as likely to have
+ * USDG as token0 as token1. Everything that measures volume, prices a quote or
+ * sizes a position has to agree about which side that is, so it is decided
+ * here rather than assumed in each of them.
+ */
+export function quoteSide(pool: { token0: TokenMeta; token1: TokenMeta }): 0 | 1 {
+  const quoteish = (symbol: string) => symbol === "USDG" || symbol === "WETH";
+  if (quoteish(pool.token1.symbol)) return 1;
+  if (quoteish(pool.token0.symbol)) return 0;
+  // Neither side is a quote the desk knows. Keep the old orientation so the
+  // figures are at least consistent; the pricing gate drops it either way.
+  return 1;
 }
 
 /** One pool, as the chain described it, before any token set had an opinion. */

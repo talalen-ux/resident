@@ -365,3 +365,25 @@ test("the full window is read for a pool the cheap pass found", async () => {
   assert.equal(obs.volume.h1, 6, "both swaps, not just the recent one");
   assert.equal(obs.volume.m5, 1);
 });
+
+/* ------------------------------------------------- which side is the quote */
+
+test("a pool with the quote on token0 is measured on token0", async () => {
+  // Uniswap orders currencies by address, so a USDG pool is as likely to have
+  // USDG first as second. Reading token1 as the quote regardless measured half
+  // the chain's USDG pools in stock units, then dropped them for having a
+  // quote asset it could not price.
+  const { quoteSide } = await import("../src/lib/desk/rpc-pools-source.ts");
+  assert.equal(quoteSide({ token0: STOCK, token1: USDG }), 1);
+  assert.equal(quoteSide({ token0: USDG, token1: STOCK }), 0);
+  assert.equal(quoteSide({ token0: { symbol: "WETH", decimals: 18 }, token1: STOCK }), 0);
+});
+
+test("neither side a known quote keeps a consistent orientation", () => {
+  // The pricing gate drops it either way; what matters is that the volume and
+  // the price do not disagree about which number they are in.
+  const other = { symbol: "PONS", decimals: 18 };
+  assert.equal(quoteSideOf({ token0: other, token1: other }), 1);
+});
+
+const { quoteSide: quoteSideOf } = await import("../src/lib/desk/rpc-pools-source.ts");
