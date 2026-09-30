@@ -5,6 +5,7 @@ import { spotPrice } from "../sim/v3.ts";
 import type { TokenMeta } from "../sim/v3.ts";
 import { TOKENS, UNISWAP, isTradable, tickerFor } from "../chain.ts";
 import { deriveRates, usdPerQuote } from "./quotes.ts";
+import { jsonRpc, type Rpc } from "./rpc-retry.ts";
 import type { ExtraRegistry } from "./extra-tokens.ts";
 
 import type { PoolsSource } from "./pools-adapter.ts";
@@ -56,22 +57,9 @@ export type RpcPoolsOptions = {
   ageSearchBlocks?: number;
 };
 
-type Rpc = <T>(method: string, params: unknown[]) => Promise<T>;
-
-function jsonRpc(url: string): Rpc {
-  let id = 0;
-  return async <T>(method: string, params: unknown[]) => {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ jsonrpc: "2.0", id: ++id, method, params }),
-    });
-    if (!res.ok) throw new Error(`RPC ${res.status} on ${method}`);
-    const json = await res.json();
-    if (json.error) throw new Error(`RPC ${method}: ${json.error.message}`);
-    return json.result as T;
-  };
-}
+// The retrying caller, shared with the chain verifier. This file used to have
+// its own, without retries, which is how a rate limit during pool discovery
+// became an uncaught throw that killed the keeper before its first tick.
 
 const hex = (n: number) => `0x${n.toString(16)}`;
 
@@ -100,6 +88,14 @@ async function secondsPerBlock(rpc: Rpc, head: number, span = 2_000) {
   return blocks > 0 && dt > 0 ? dt / blocks : 2;
 }
 
+/**
+ * Replay a log range in chunks the node will accept.
+ *
+ * `pauseMs` is between chunks, not inside them. Retrying after a 429 recovers
+ * from a limit; a small pause avoids reaching one, and over a scan that is
+ * hundreds of chunks long the difference is between a slow start and a start
+ * that spends most of its time waiting out penalties.
+ */
 async function getLogsChunked(
   rpc: Rpc,
   address: string,
@@ -107,14 +103,23 @@ async function getLogsChunked(
   fromBlock: number,
   toBlock: number,
   maxSpan: number,
+  pauseMs = 0,
+  onProgress?: (done: number, total: number) => void,
 ) {
   const out: { data: string; blockNumber: string; topics: string[] }[] = [];
+  const total = Math.max(1, Math.ceil((toBlock - fromBlock + 1) / maxSpan));
+  let done = 0;
   for (let start = fromBlock; start <= toBlock; start += maxSpan) {
+    if (done > 0 && pauseMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, pauseMs));
+    }
     const end = Math.min(start + maxSpan - 1, toBlock);
     const chunk = await rpc<typeof out>("eth_getLogs", [
       { address, topics, fromBlock: hex(start), toBlock: hex(end) },
     ]);
     out.push(...chunk);
+    done++;
+    onProgress?.(done, total);
   }
   return out;
 }
@@ -320,9 +325,18 @@ export async function discoverPools(
     toBlock?: number;
     /** Tokens allowed beyond the canonical registry. See extra-tokens.ts. */
     extra?: ExtraRegistry;
+    /** Milliseconds between chunks, to stay under the node's rate limit. */
+    pauseMs?: number;
+    /** Told about each chunk, so a long scan reports progress rather than hanging. */
+    onProgress?: (done: number, total: number) => void;
   } = {},
 ): Promise<WatchedPool[]> {
-  const rpc = jsonRpc(rpcUrl);
+  const rpc = jsonRpc(rpcUrl, {
+    onRetry: ({ status, attempt, waitMs }) =>
+      opts.onProgress === undefined
+        ? undefined
+        : console.log(`    rpc ${status}, retry ${attempt} in ${waitMs}ms`),
+  });
   const poolManager = opts.poolManager ?? UNISWAP.v4PoolManager;
   const maxSpan = opts.maxBlockSpan ?? 10_000;
 
@@ -337,6 +351,8 @@ export async function discoverPools(
     from,
     head,
     maxSpan,
+    opts.pauseMs ?? 0,
+    opts.onProgress,
   );
 
   const found = new Map<string, WatchedPool>();

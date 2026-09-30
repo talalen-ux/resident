@@ -22,6 +22,7 @@
  */
 
 import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 
 import { FileJournal } from "../src/lib/keeper/journal-file.ts";
 import { checkJournalVolume, volumeFailure } from "../src/lib/keeper/volume.ts";
@@ -188,19 +189,44 @@ console.log(`  mode      ${configVerdict.mode}`);
 // cache is keyed on the token set that produced it: a pool is only discovered
 // if both its tokens were known at the time, so reusing a cache built without
 // a token means adding that token appears to do nothing at all.
-const CACHE = ".pools.json";
+// Beside the journal, not beside the code.
+//
+// This was written to the working directory, which a redeploy replaces — so
+// discovery replayed every Initialize log from genesis on every deploy, which
+// is hundreds of eth_getLogs calls, which is what the node was rate limiting.
+// The cache only earns its keep if it outlives the container, and the volume
+// is the thing that does.
+const CACHE = join(dirname(journalPath), "pools.json");
 const cacheKey = [...EXTRA.registry.keys()].sort().join(",");
 let watched;
 const cached = existsSync(CACHE) ? JSON.parse(readFileSync(CACHE, "utf8")) : null;
 if (cached && cached.key === cacheKey) {
   watched = cached.pools;
+  console.log(`  pools     ${watched.length} from ${CACHE}`);
 } else {
-  process.stdout.write(
-    cached ? "  token set changed, rescanning Initialize logs… " : "  scanning Initialize logs… ",
+  console.log(
+    cached
+      ? "  pools     token set changed, rescanning Initialize logs"
+      : "  pools     scanning Initialize logs (first run; cached on the volume afterwards)",
   );
-  watched = await discoverPools(RPC, { extra: EXTRA.registry });
+  // Paced rather than as fast as the node will answer. A scan this long that
+  // trips the limiter spends most of its time serving out penalties, and the
+  // keeper has nothing to do until it finishes.
+  let lastReport = 0;
+  watched = await discoverPools(RPC, {
+    extra: EXTRA.registry,
+    fromBlock: Number(process.env.RESIDENT_POOLS_FROM_BLOCK ?? 0),
+    pauseMs: Number(process.env.RESIDENT_SCAN_PAUSE_MS ?? 120),
+    onProgress: (done, total) => {
+      // Every 5%, so a scan of hundreds of chunks reports without flooding.
+      const pct = Math.floor((done / total) * 20);
+      if (pct === lastReport) return;
+      lastReport = pct;
+      console.log(`            ${done}/${total} chunks (${Math.round((done / total) * 100)}%)`);
+    },
+  });
   writeFileSync(CACHE, JSON.stringify({ key: cacheKey, pools: watched }, null, 2));
-  console.log(`found ${watched.length} pools`);
+  console.log(`  pools     found ${watched.length}`);
 }
 
 const source = new RpcPoolsSource(RPC, watched);

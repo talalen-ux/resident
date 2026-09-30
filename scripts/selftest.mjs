@@ -39,6 +39,7 @@ const modules = [
   "../src/lib/keeper/curve.ts",
   "../src/lib/keeper/entry.ts",
   "../src/lib/desk/extra-tokens.ts",
+  "../src/lib/desk/rpc-retry.ts",
   "../src/lib/keeper/swap-v4.ts",
   "../src/lib/keeper/holders.ts",
   "../src/lib/keeper/distribution.ts",
