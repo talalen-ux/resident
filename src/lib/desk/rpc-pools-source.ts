@@ -168,12 +168,35 @@ function describe(error: unknown): string {
 }
 
 /**
+ * True when the node refused a range for having too much in it.
+ *
+ * Distinct from a rate limit, and handled differently: waiting does not make a
+ * range smaller. Phrasings differ between clients, so this matches the shape
+ * rather than one vendor's wording.
+ */
+export const isTooManyResults = (message: string) =>
+  /exceeds limit|more than \d+ results|query returned more than|too many results|response size exceeded|limit exceeded/i.test(
+    message,
+  );
+
+/**
  * Replay a log range in chunks the node will accept.
  *
+ * The block span is a guess and the node's real limit is on results, so a span
+ * that works over quiet history fails the moment it reaches a busy stretch —
+ * which is exactly where the logs worth having are. When a range comes back
+ * "exceeds limit", it is halved and retried rather than abandoned: the only
+ * thing wrong with it was its size, and the caller has no way to know the
+ * right size in advance because it depends on how much traded.
+ *
+ * Splitting bottoms out at a single block. A block that alone exceeds the
+ * limit cannot be subdivided further, and inventing a partial answer from it
+ * would mean under-reporting volume as though the pool were quiet.
+ *
  * `pauseMs` is between chunks, not inside them. Retrying after a 429 recovers
- * from a limit; a small pause avoids reaching one, and over a scan that is
- * hundreds of chunks long the difference is between a slow start and a start
- * that spends most of its time waiting out penalties.
+ * from a limit; a small pause avoids reaching one, and over a scan hundreds of
+ * chunks long that is the difference between a slow start and a start that
+ * spends most of its time serving out penalties.
  */
 async function getLogsChunked(
   rpc: Rpc,
@@ -185,18 +208,32 @@ async function getLogsChunked(
   pauseMs = 0,
   onProgress?: (done: number, total: number) => void,
 ) {
-  const out: { data: string; blockNumber: string; topics: string[] }[] = [];
+  type Log = { data: string; blockNumber: string; topics: string[] };
+  const out: Log[] = [];
   const total = Math.max(1, Math.ceil((toBlock - fromBlock + 1) / maxSpan));
   let done = 0;
+
+  const fetchRange = async (start: number, end: number): Promise<void> => {
+    try {
+      const chunk = await rpc<Log[]>("eth_getLogs", [
+        { address, topics, fromBlock: hex(start), toBlock: hex(end) },
+      ]);
+      out.push(...chunk);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!isTooManyResults(message) || start >= end) throw error;
+      const mid = Math.floor((start + end) / 2);
+      await fetchRange(start, mid);
+      if (pauseMs > 0) await new Promise((r) => setTimeout(r, pauseMs));
+      await fetchRange(mid + 1, end);
+    }
+  };
+
   for (let start = fromBlock; start <= toBlock; start += maxSpan) {
     if (done > 0 && pauseMs > 0) {
       await new Promise((resolve) => setTimeout(resolve, pauseMs));
     }
-    const end = Math.min(start + maxSpan - 1, toBlock);
-    const chunk = await rpc<typeof out>("eth_getLogs", [
-      { address, topics, fromBlock: hex(start), toBlock: hex(end) },
-    ]);
-    out.push(...chunk);
+    await fetchRange(start, Math.min(start + maxSpan - 1, toBlock));
     done++;
     onProgress?.(done, total);
   }

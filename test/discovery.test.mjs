@@ -112,3 +112,82 @@ test("a pool with a known side is kept; one with neither is not", async () => {
     globalThis.fetch = original;
   }
 });
+
+/* ------------------------------------- ranges the node refuses for size */
+
+test("a range refused for size is halved, not abandoned", async () => {
+  // The block span is a guess; the node's real limit is on results. A span
+  // that works over quiet history fails on a busy stretch — which is exactly
+  // where the logs worth having are.
+  const { discoverRawPools, V4_TOPICS } = await import("../src/lib/desk/rpc-pools-source.ts");
+  const { TOKENS: T } = await import("../src/lib/chain.ts");
+
+  const topic = (a) => `0x${a.slice(2).padStart(64, "0")}`;
+  const data = "0x" + [3000, 60, 0, 0, 0].map((n) => BigInt(n).toString(16).padStart(64, "0")).join("");
+  const asked = [];
+
+  const original = globalThis.fetch;
+  globalThis.fetch = async (_url, init) => {
+    const { method, params } = JSON.parse(init.body);
+    const reply = (result) => ({ ok: true, json: async () => ({ result }) });
+    if (method === "eth_blockNumber") return reply("0x64"); // 100
+    if (method === "eth_getCode") return reply("0x");
+    if (method === "eth_getLogs") {
+      const [{ fromBlock, toBlock }] = params;
+      const lo = Number(BigInt(fromBlock));
+      const hi = Number(BigInt(toBlock));
+      asked.push([lo, hi]);
+      // Anything wider than 25 blocks is "too much", as a busy node would say.
+      if (hi - lo + 1 > 25) {
+        return {
+          ok: true,
+          json: async () => ({ error: { message: "logs matched by query exceeds limit of 10000" } }),
+        };
+      }
+      return reply([
+        {
+          topics: [V4_TOPICS.initialize, "0x00", topic("0xcccccccccccccccccccccccccccccccccccccccc"), topic(T.usdg)],
+          data,
+          blockNumber: hex0(lo),
+        },
+      ]);
+    }
+    throw new Error(`unexpected ${method}`);
+  };
+  function hex0(n) { return "0x" + n.toString(16); }
+
+  try {
+    const { pools } = await discoverRawPools("http://stub", { fromBlock: 0, maxBlockSpan: 100 });
+    assert.ok(pools.length > 0, "the scan completed rather than throwing");
+    // One refusal at 100 wide, then halves until each range is accepted.
+    assert.ok(asked.some(([lo, hi]) => hi - lo + 1 > 25), "the wide range was attempted");
+    assert.ok(asked.every(([lo, hi]) => lo <= hi), "no inverted ranges");
+    assert.ok(asked.length >= 7, `expected subdivision, got ${asked.length} queries`);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test("a single block the node still refuses is surfaced, not faked", async () => {
+  // Splitting bottoms out. Inventing a partial answer would under-report
+  // volume as though the pool had been quiet.
+  const { discoverRawPools } = await import("../src/lib/desk/rpc-pools-source.ts");
+  const original = globalThis.fetch;
+  globalThis.fetch = async (_url, init) => {
+    const { method } = JSON.parse(init.body);
+    if (method === "eth_blockNumber") return { ok: true, json: async () => ({ result: "0x2" }) };
+    if (method === "eth_getCode") return { ok: true, json: async () => ({ result: "0x" }) };
+    return {
+      ok: true,
+      json: async () => ({ error: { message: "logs matched by query exceeds limit of 10000" } }),
+    };
+  };
+  try {
+    await assert.rejects(
+      discoverRawPools("http://stub", { fromBlock: 0, maxBlockSpan: 10 }),
+      /exceeds limit/,
+    );
+  } finally {
+    globalThis.fetch = original;
+  }
+});
