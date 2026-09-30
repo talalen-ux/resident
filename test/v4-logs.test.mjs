@@ -3,6 +3,7 @@ import test from "node:test";
 import { id as keccakId } from "ethers";
 
 import { V4_TOPICS, RpcPoolsSource } from "../src/lib/desk/rpc-pools-source.ts";
+import { poolId } from "../src/lib/sim/v4.ts";
 
 /**
  * A wrong topic hash does not throw — eth_getLogs just returns nothing, which
@@ -63,13 +64,16 @@ function stubFetch({ head = 100_000, swaps = [], initAt = null }) {
             : [],
         );
       }
+      // A real Swap log carries the pool id as topic 1 whether or not the
+      // query filtered on it. Echoing the requested topics back instead meant
+      // the fixture only worked while the caller happened to ask per-pool.
       return reply(
         swaps
           .filter((s) => s.block >= lo && s.block <= hi)
           .map((s) => ({
             blockNumber: "0x" + s.block.toString(16),
             data: swapData(s.amount1, s.sqrt),
-            topics,
+            topics: [V4_TOPICS.swap, poolId(KEY)],
           })),
       );
     }
@@ -123,24 +127,60 @@ test("sells count toward volume as much as buys", async () => {
   assert.equal(obs.volume.m5, 3);
 });
 
+/** One trade, so the pool is observed at all. See the test below. */
+const traded = { block: 99_000, amount1: -1_000_000n, sqrt: 2n ** 96n };
+
+test("a pool that has not traded in the window is not observed", async () => {
+  // Deliberate. Observing every watched pool meant a state read and a day of
+  // log replay each, which at 9,103 watchable pools is roughly 73,000 requests
+  // on a 60-second tick. A pool with no volume earns no fees and cannot rank,
+  // so the swaps are what say which pools are worth reading.
+  //
+  // Positions the desk already holds are read from its own registry, not from
+  // this board, so a quiet pool it is in is still tended.
+  assert.deepEqual(await observeWith(stubFetch({ head: 100_000, swaps: [] })), []);
+});
+
 test("a pool older than the search window still reads as old enough", async () => {
-  const [obs] = await observeWith(stubFetch({ head: 100_000, initAt: null }));
+  const [obs] = await observeWith(
+    stubFetch({ head: 100_000, initAt: null, swaps: [traded] }),
+  );
   // 50k blocks at 2s is ~1,666 minutes, comfortably past the 20-minute gate.
   assert.ok(obs.ageMinutes > 20, `age ${obs.ageMinutes}`);
 });
 
 test("a freshly initialised pool reports its real age", async () => {
   const head = 100_000;
-  const [obs] = await observeWith(stubFetch({ head, initAt: head - 300 }));
+  const [obs] = await observeWith(
+    stubFetch({ head, initAt: head - 300, swaps: [traded] }),
+  );
   assert.equal(Math.round(obs.ageMinutes), 10); // 300 blocks x 2s = 10 min
 });
 
 test("liquidity-provider scoring is reported as unmeasured, not as zero winners", async () => {
-  const [obs] = await observeWith(stubFetch({ head: 100_000 }));
+  const [obs] = await observeWith(stubFetch({ head: 100_000, swaps: [traded] }));
   // The board's LPs-winning gate needs > 0, so 0 holds the pool back rather
   // than letting it through unchecked.
   assert.equal(obs.smartLpNet, 0);
   assert.equal(obs.smartLpPresent, 0);
+});
+
+test("the busiest pools are read first when there are more than the cap", async () => {
+  // The cap exists so a tick finishes. Which pools it keeps matters: the board
+  // only ever acts on a handful, and they are the ones with the flow.
+  const original = globalThis.fetch;
+  globalThis.fetch = stubFetch({ head: 100_000, swaps: [traded, traded] });
+  try {
+    const source = new RpcPoolsSource("http://stub", [{ key: KEY, token0: STOCK, token1: USDG }], {
+      maxBlockSpan: 1_000_000,
+      ageSearchBlocks: 50_000,
+      maxPools: 0,
+    });
+    assert.deepEqual(await source.observe(), [], "a cap of zero reads nothing");
+    assert.equal(source.lastActive, 1, "but still counts what traded");
+  } finally {
+    globalThis.fetch = original;
+  }
 });
 
 // --- Pool discovery ---------------------------------------------------------

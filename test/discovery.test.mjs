@@ -71,3 +71,44 @@ test("the same pool discovered twice is held once", () => {
 test("a pool with both sides unknown is dropped, not half-read", () => {
   assert.equal(watchable([pool(STRANGER, STRANGER)]).length, 0);
 });
+
+/* --------------------------------------------- what is worth remembering */
+
+test("a pool with a known side is kept; one with neither is not", async () => {
+  // The cache the next boot has to parse. A chain this size is mostly spam
+  // against spam, and a pool with no priceable side is one the board could
+  // never rank — the same rule, applied earlier.
+  const { discoverRawPools } = await import("../src/lib/desk/rpc-pools-source.ts");
+  const { V4_TOPICS } = await import("../src/lib/desk/rpc-pools-source.ts");
+
+  const topic = (a) => `0x${a.slice(2).padStart(64, "0")}`;
+  const SPAM_A = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  const SPAM_B = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+  // fee, tickSpacing, hooks, sqrtPriceX96, tick
+  const data = "0x" + [3000, 60, 0, 0, 0].map((n) => BigInt(n).toString(16).padStart(64, "0")).join("");
+
+  const logs = [
+    { topics: [V4_TOPICS.swap, "0x00", topic(SPAM_A), topic(TOKENS.usdg)], data, blockNumber: "0x1" },
+    { topics: [V4_TOPICS.swap, "0x00", topic(SPAM_A), topic(SPAM_B)], data, blockNumber: "0x2" },
+  ];
+
+  const original = globalThis.fetch;
+  globalThis.fetch = async (_url, init) => {
+    const { method } = JSON.parse(init.body);
+    const reply = (result) => ({ ok: true, json: async () => ({ result }) });
+    if (method === "eth_blockNumber") return reply("0x2");
+    if (method === "eth_getCode") return reply("0x");
+    if (method === "eth_getLogs") return reply(logs);
+    throw new Error(`unexpected ${method}`);
+  };
+  try {
+    const { pools } = await discoverRawPools("http://stub", { fromBlock: 0, maxBlockSpan: 10 });
+    assert.equal(pools.length, 1, "only the pool with a priceable side");
+    assert.ok(
+      [pools[0].key.currency0, pools[0].key.currency1].includes(TOKENS.usdg.toLowerCase()) ||
+        [pools[0].key.currency0, pools[0].key.currency1].includes(TOKENS.usdg),
+    );
+  } finally {
+    globalThis.fetch = original;
+  }
+});

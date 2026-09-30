@@ -237,7 +237,10 @@ const scan = async (fromBlock, note) => {
   for (const pool of found.pools) byId.set(poolIdOf(pool.key), pool);
   raw = [...byId.values()];
   scannedTo = found.scannedTo;
-  writeFileSync(CACHE, JSON.stringify({ scannedTo, pools: raw }, null, 2));
+  // Compact, not pretty. Indentation on a list this long is megabytes of
+  // whitespace that has to be written, stored and parsed on every boot, to be
+  // read by nobody.
+  writeFileSync(CACHE, JSON.stringify({ scannedTo, pools: raw }));
   console.log(`  pools     ${raw.length} known, scanned to block ${scannedTo.toLocaleString()}`);
 };
 
@@ -256,7 +259,10 @@ if (scannedTo === null) {
 const watched = watchable(raw, EXTRA.registry);
 console.log(`  watching  ${watched.length} of ${raw.length} pools the token set allows`);
 
-const source = new RpcPoolsSource(RPC, watched);
+const source = new RpcPoolsSource(RPC, watched, {
+  maxPools: Number(process.env.RESIDENT_MAX_POOLS ?? 150),
+  pauseMs: Number(process.env.RESIDENT_SCAN_PAUSE_MS ?? 120),
+});
 const journal = new FileJournal(journalPath);
 const rpc = jsonRpc(RPC);
 

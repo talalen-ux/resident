@@ -55,6 +55,10 @@ export type RpcPoolsOptions = {
   maxBlockSpan?: number;
   /** Bound the Initialize search. A pool older than this reads as old enough. */
   ageSearchBlocks?: number;
+  /** Most pools to read state for in one tick, busiest first. */
+  maxPools?: number;
+  /** Milliseconds between log chunks, to stay under the node's rate limit. */
+  pauseMs?: number;
 };
 
 // The retrying caller, shared with the chain verifier. This file used to have
@@ -211,6 +215,10 @@ export class RpcPoolsSource implements PoolsSource {
   private readonly poolManager: string;
   private readonly maxBlockSpan: number;
   private readonly ageSearchBlocks: number;
+  private readonly maxPools: number;
+  private readonly pauseMs: number;
+  /** Pools that traded in the window, before maxPools trimmed the tail. */
+  lastActive = 0;
 
   constructor(
     rpcUrl: string,
@@ -223,6 +231,10 @@ export class RpcPoolsSource implements PoolsSource {
     this.poolManager = opts.poolManager ?? UNISWAP.v4PoolManager;
     this.maxBlockSpan = opts.maxBlockSpan ?? 10_000;
     this.ageSearchBlocks = opts.ageSearchBlocks ?? 250_000;
+    // State reads per tick. The board only ever acts on a handful, and a tick
+    // that does not finish inside its interval is a desk that never decides.
+    this.maxPools = opts.maxPools ?? 150;
+    this.pauseMs = opts.pauseMs ?? 0;
   }
 
   async observe(): Promise<PoolObservation[]> {
@@ -249,27 +261,63 @@ export class RpcPoolsSource implements PoolsSource {
     return observations;
   }
 
+  /**
+   * One pass over the chain's swaps, not one pass per pool.
+   *
+   * This used to loop the watched list and, for each pool, read its state and
+   * replay a day of its Swap logs. At 9,103 watchable pools that is roughly
+   * 73,000 requests per tick on a 60-second interval — a tick that can never
+   * finish, against a node that rate limits long before it would.
+   *
+   * The swaps already say which pools traded, and carry the amounts. So one
+   * unfiltered read of the PoolManager's Swap logs over the window replaces
+   * every per-pool log query, and state is read only for pools that actually
+   * traded. A chain with 936,697 pools has a few hundred doing anything on any
+   * given day, and those are the only ones that could rank anyway.
+   *
+   * `maxPools` bounds the rest: if a day ever does bring thousands of active
+   * pools, the busiest are read and the tail waits. Being late to the 400th
+   * busiest pool costs nothing; never finishing a tick costs everything.
+   */
   private async read(): Promise<PoolObservation[]> {
     const head = Number(BigInt(await this.rpc<string>("eth_blockNumber", [])));
     const spb = await secondsPerBlock(this.rpc, head);
     const blocksFor = (seconds: number) => Math.max(1, Math.round(seconds / spb));
+    const from24h = Math.max(0, head - blocksFor(86_400));
+
+    const watchedById = new Map(this.pools.map((w) => [poolId(w.key), w]));
+
+    const swaps = await getLogsChunked(
+      this.rpc,
+      this.poolManager,
+      [V4_TOPICS.swap],
+      from24h,
+      head,
+      this.maxBlockSpan,
+      this.pauseMs,
+    );
+
+    // Group by pool, keeping only pools the token set allows. Everything else
+    // is a swap in a pool the desk could not have traded anyway.
+    const byPool = new Map<string, typeof swaps>();
+    for (const log of swaps) {
+      const id = log.topics[1];
+      if (!id || !watchedById.has(id)) continue;
+      const held = byPool.get(id);
+      if (held) held.push(log);
+      else byPool.set(id, [log]);
+    }
+
+    const active = [...byPool.entries()]
+      .sort((a, b) => b[1].length - a[1].length)
+      .slice(0, this.maxPools);
 
     const reader = rpcReader(this.rpcUrl);
     const observations: PoolObservation[] = [];
 
-    for (const watched of this.pools) {
-      const id = poolId(watched.key);
+    for (const [id, logs] of active) {
+      const watched = watchedById.get(id)!;
       const pool = await readV4Pool(reader, watched.key, watched.token0, watched.token1);
-
-      const from24h = Math.max(0, head - blocksFor(86_400));
-      const logs = await getLogsChunked(
-        this.rpc,
-        this.poolManager,
-        [V4_TOPICS.swap, id],
-        from24h,
-        head,
-        this.maxBlockSpan,
-      );
 
       // Swap data words: amount0, amount1, sqrtPriceX96, liquidity, tick, fee.
       // Volume is the quote side, so token1's amount, in its own decimals.
@@ -330,6 +378,7 @@ export class RpcPoolsSource implements PoolsSource {
       });
     }
 
+    this.lastActive = byPool.size;
     return observations;
   }
 
@@ -540,10 +589,20 @@ export async function discoverRawPools(
     opts.onProgress,
   );
 
+  // Kept only if one side is a token the desk already knows.
+  //
+  // A chain this size is mostly pools of one spam token against another, and
+  // 936,697 of them is a cache the next boot has to parse before it can do
+  // anything. The filter is not thrift, it is the same rule the board runs on:
+  // a position needs a quote asset that can be priced, and a pool with neither
+  // side known has none. Everything realistically addable later — the volume
+  // leaders are quoted in USDG or WETH — has a known side today.
   const pools = [];
   for (const log of logs) {
     const raw = rawFrom(log);
-    if (raw) pools.push(raw);
+    if (!raw) continue;
+    if (!tokenMeta(raw.key.currency0) && !tokenMeta(raw.key.currency1)) continue;
+    pools.push(raw);
   }
   return { pools, scannedTo: head };
 }
