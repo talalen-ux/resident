@@ -134,19 +134,19 @@ test("the deployment block is found by halving, not by scanning", async () => {
     calls++;
     return chainWithCode(4_200_000)(method, params);
   };
-  assert.equal(await firstBlockWithCode(rpc, "0xabc", 76_570_000), 4_200_000);
+  assert.deepEqual(await firstBlockWithCode(rpc, "0xabc", 76_570_000), { block: 4_200_000 });
   // log2(76.5M) is about 27. The point of the search is that it is not 7,657.
   assert.ok(calls < 40, `took ${calls} calls`);
 });
 
 test("a predeploy reports genesis rather than searching for nothing", async () => {
-  assert.equal(await firstBlockWithCode(chainWithCode(0), "0xabc", 1_000), 0);
+  assert.deepEqual(await firstBlockWithCode(chainWithCode(0), "0xabc", 1_000), { block: 0 });
 });
 
 test("an address with no code anywhere finds nothing", async () => {
   // Wrong address, or a node not serving state. Either way the caller should
   // fall back to its own floor rather than trust a number from this.
-  assert.equal(await firstBlockWithCode(async () => "0x", "0xabc", 1_000), null);
+  assert.equal((await firstBlockWithCode(async () => "0x", "0xabc", 1_000)).block, null);
 });
 
 test("a node that will not serve historical state finds nothing, quietly", async () => {
@@ -158,6 +158,8 @@ test("a node that will not serve historical state finds nothing, quietly", async
     if (Number(BigInt(params[1])) < 1_000) throw new Error("missing trie node");
     return "0x60806040";
   };
-  assert.equal(await firstBlockWithCode(rpc, "0xabc", 1_000), null);
+  const verdict = await firstBlockWithCode(rpc, "0xabc", 1_000);
+  assert.equal(verdict.block, null);
+  assert.match(verdict.reason, /does not serve historical state/);
   assert.ok(calls <= 3, "gives up rather than hammering");
 });

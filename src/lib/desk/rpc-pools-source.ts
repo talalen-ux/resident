@@ -103,11 +103,15 @@ async function secondsPerBlock(rpc: Rpc, head: number, span = 2_000) {
  * guess from that, the caller is told nothing was found and starts from zero
  * as before. Slow and correct beats fast and wrong about where to begin.
  */
+export type DeployBlockResult =
+  | { block: number }
+  | { block: null; reason: string };
+
 export async function firstBlockWithCode(
   rpc: Rpc,
   address: string,
   head: number,
-): Promise<number | null> {
+): Promise<DeployBlockResult> {
   const hasCode = async (block: number) => {
     const code = await rpc<string>("eth_getCode", [address, hex(block)]);
     return typeof code === "string" && code.length > 2;
@@ -116,11 +120,13 @@ export async function firstBlockWithCode(
   try {
     // No code at the head means the address is wrong, or the node is not
     // serving state. Either way this search has nothing to say.
-    if (!(await hasCode(head))) return null;
+    if (!(await hasCode(head))) {
+      return { block: null, reason: `no code at ${address} on the latest block` };
+    }
     // Code at genesis means a predeploy, and nothing to narrow.
-    if (await hasCode(0)) return 0;
-  } catch {
-    return null;
+    if (await hasCode(0)) return { block: 0 };
+  } catch (error) {
+    return { block: null, reason: describe(error) };
   }
 
   let low = 0;
@@ -131,10 +137,30 @@ export async function firstBlockWithCode(
       if (await hasCode(mid)) high = mid;
       else low = mid;
     }
-  } catch {
-    return null;
+  } catch (error) {
+    return { block: null, reason: describe(error) };
   }
-  return high;
+  return { block: high };
+}
+
+/**
+ * Why the search gave up, in the caller's words rather than a stack trace.
+ *
+ * The distinction worth surfacing is between a node that will not serve
+ * historical state and one that is merely busy: the first is permanent and
+ * means setting RESIDENT_POOLS_FROM_BLOCK by hand, the second would have
+ * worked on a quieter minute. Falling back silently made a 25-minute scan look
+ * like the intended behaviour.
+ */
+function describe(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/rate limit|429/i.test(message)) {
+    return `the node rate limited the search (${message})`;
+  }
+  if (/missing trie|state.*not available|unsupported|not supported|archive/i.test(message)) {
+    return "the node does not serve historical state, so the deployment block cannot be found";
+  }
+  return message;
 }
 
 /**
@@ -378,8 +404,11 @@ export async function discoverPools(
     pauseMs?: number;
     /** Told about each chunk, so a long scan reports progress rather than hanging. */
     onProgress?: (done: number, total: number) => void;
-    /** Told where the venue was deployed, when that could be established. */
-    onDeployBlock?: (block: number) => void;
+    /**
+     * Told where the venue was deployed, or why that could not be established.
+     * A silent fallback to genesis makes a 25-minute scan look intended.
+     */
+    onDeployBlock?: (block: number | null, reason?: string) => void;
   } = {},
 ): Promise<WatchedPool[]> {
   const rpc = jsonRpc(rpcUrl, {
@@ -399,10 +428,12 @@ export async function discoverPools(
   // request that can only return nothing.
   let from = opts.fromBlock ?? 0;
   if (opts.fromBlock === undefined) {
-    const deployed = await firstBlockWithCode(rpc, poolManager, head);
-    if (deployed !== null) {
-      from = deployed;
-      opts.onDeployBlock?.(deployed);
+    const found = await firstBlockWithCode(rpc, poolManager, head);
+    if (found.block !== null) {
+      from = found.block;
+      opts.onDeployBlock?.(found.block);
+    } else {
+      opts.onDeployBlock?.(null, found.reason);
     }
   }
 

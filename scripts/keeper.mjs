@@ -217,8 +217,13 @@ if (cached && cached.key === cacheKey) {
     extra: EXTRA.registry,
     fromBlock: Number(process.env.RESIDENT_POOLS_FROM_BLOCK ?? 0),
     pauseMs: Number(process.env.RESIDENT_SCAN_PAUSE_MS ?? 120),
-    onDeployBlock: (block) =>
-      console.log(`            PoolManager deployed at block ${block.toLocaleString()}`),
+    onDeployBlock: (block, reason) =>
+      console.log(
+        block === null
+          ? `            starting from genesis: ${reason}\n` +
+            "            set RESIDENT_POOLS_FROM_BLOCK to the PoolManager's deploy block to skip this"
+          : `            PoolManager deployed at block ${block.toLocaleString()}`,
+      ),
     onProgress: (done, total) => {
       // Every 5%, so a scan of hundreds of chunks reports without flooding.
       const pct = Math.floor((done / total) * 20);
