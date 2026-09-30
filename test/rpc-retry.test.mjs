@@ -116,3 +116,48 @@ test("only the transient statuses are transient", () => {
   assert.equal(isTransient(400), false);
   assert.equal(isTransient(404), false);
 });
+
+/* ------------------------------------------------ where a scan should begin */
+
+const { firstBlockWithCode } = await import("../src/lib/desk/rpc-pools-source.ts");
+
+/** A chain where `address` got its code at exactly `deployedAt`. */
+const chainWithCode = (deployedAt) => async (method, params) => {
+  assert.equal(method, "eth_getCode");
+  const block = Number(BigInt(params[1]));
+  return block >= deployedAt ? "0x60806040" : "0x";
+};
+
+test("the deployment block is found by halving, not by scanning", async () => {
+  let calls = 0;
+  const rpc = async (method, params) => {
+    calls++;
+    return chainWithCode(4_200_000)(method, params);
+  };
+  assert.equal(await firstBlockWithCode(rpc, "0xabc", 76_570_000), 4_200_000);
+  // log2(76.5M) is about 27. The point of the search is that it is not 7,657.
+  assert.ok(calls < 40, `took ${calls} calls`);
+});
+
+test("a predeploy reports genesis rather than searching for nothing", async () => {
+  assert.equal(await firstBlockWithCode(chainWithCode(0), "0xabc", 1_000), 0);
+});
+
+test("an address with no code anywhere finds nothing", async () => {
+  // Wrong address, or a node not serving state. Either way the caller should
+  // fall back to its own floor rather than trust a number from this.
+  assert.equal(await firstBlockWithCode(async () => "0x", "0xabc", 1_000), null);
+});
+
+test("a node that will not serve historical state finds nothing, quietly", async () => {
+  // Archive-only methods are common to refuse. Guessing a start block from an
+  // error is how a scan silently misses the pools it was meant to find.
+  let calls = 0;
+  const rpc = async (_method, params) => {
+    calls++;
+    if (Number(BigInt(params[1])) < 1_000) throw new Error("missing trie node");
+    return "0x60806040";
+  };
+  assert.equal(await firstBlockWithCode(rpc, "0xabc", 1_000), null);
+  assert.ok(calls <= 3, "gives up rather than hammering");
+});

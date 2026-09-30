@@ -89,6 +89,55 @@ async function secondsPerBlock(rpc: Rpc, head: number, span = 2_000) {
 }
 
 /**
+ * The first block at which an address had code.
+ *
+ * Discovery replays Initialize logs, and there are none before the PoolManager
+ * existed. Starting at genesis on a chain 76 million blocks old meant 7,657
+ * chunked eth_getLogs calls to cover a span where the contract was not
+ * deployed — the overwhelming majority of them asking an empty range, and
+ * enough of them to earn a rate limit doing it.
+ *
+ * Binary search over eth_getCode finds the deployment in about 27 calls
+ * instead. It needs a node that serves historical state; one that does not
+ * answers with an error or an empty result at every height, and rather than
+ * guess from that, the caller is told nothing was found and starts from zero
+ * as before. Slow and correct beats fast and wrong about where to begin.
+ */
+export async function firstBlockWithCode(
+  rpc: Rpc,
+  address: string,
+  head: number,
+): Promise<number | null> {
+  const hasCode = async (block: number) => {
+    const code = await rpc<string>("eth_getCode", [address, hex(block)]);
+    return typeof code === "string" && code.length > 2;
+  };
+
+  try {
+    // No code at the head means the address is wrong, or the node is not
+    // serving state. Either way this search has nothing to say.
+    if (!(await hasCode(head))) return null;
+    // Code at genesis means a predeploy, and nothing to narrow.
+    if (await hasCode(0)) return 0;
+  } catch {
+    return null;
+  }
+
+  let low = 0;
+  let high = head;
+  try {
+    while (low + 1 < high) {
+      const mid = Math.floor((low + high) / 2);
+      if (await hasCode(mid)) high = mid;
+      else low = mid;
+    }
+  } catch {
+    return null;
+  }
+  return high;
+}
+
+/**
  * Replay a log range in chunks the node will accept.
  *
  * `pauseMs` is between chunks, not inside them. Retrying after a 429 recovers
@@ -329,6 +378,8 @@ export async function discoverPools(
     pauseMs?: number;
     /** Told about each chunk, so a long scan reports progress rather than hanging. */
     onProgress?: (done: number, total: number) => void;
+    /** Told where the venue was deployed, when that could be established. */
+    onDeployBlock?: (block: number) => void;
   } = {},
 ): Promise<WatchedPool[]> {
   const rpc = jsonRpc(rpcUrl, {
@@ -342,7 +393,18 @@ export async function discoverPools(
 
   const head =
     opts.toBlock ?? Number(BigInt(await rpc<string>("eth_blockNumber", [])));
-  const from = opts.fromBlock ?? 0;
+
+  // An explicit floor wins. Otherwise find where the PoolManager was deployed,
+  // because every Initialize log is after that and everything before it is a
+  // request that can only return nothing.
+  let from = opts.fromBlock ?? 0;
+  if (opts.fromBlock === undefined) {
+    const deployed = await firstBlockWithCode(rpc, poolManager, head);
+    if (deployed !== null) {
+      from = deployed;
+      opts.onDeployBlock?.(deployed);
+    }
+  }
 
   const logs = await getLogsChunked(
     rpc,
