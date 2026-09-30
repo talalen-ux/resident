@@ -24,13 +24,49 @@
 
 import { ALL_TOKENS, addressManifest, chainBeforeVault } from "../src/lib/chain.ts";
 
-const rpc = async (method, params = []) => {
+/**
+ * Retried on the failures that are about the node rather than the address.
+ *
+ * The registry check puts 194 calls to the RPC in a few seconds, which is
+ * exactly the shape a public endpoint rate-limits. A 429 then arrives as a
+ * failed check, the deploy fails closed, Railway restarts, and the restart
+ * puts the same 194 calls to the same endpoint — the verifier turns a
+ * momentary limit into a crash loop that sustains it.
+ *
+ * So a 429 or a 5xx is asked again, with the delay doubling. A 4xx that is not
+ * 429 is not retried: a malformed request does not become well formed by being
+ * repeated. The distinction matters because the whole value of this check is
+ * that a failure means a wrong address, and a failure that means "too fast"
+ * spends that credibility.
+ */
+const RETRY_STATUS = (status) => status === 429 || status >= 500;
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const rpc = async (method, params = [], attempt = 0) => {
   const res = await fetch(config.rpcUrl, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
   });
-  if (!res.ok) throw new Error(`RPC HTTP ${res.status}`);
+  if (!res.ok) {
+    if (RETRY_STATUS(res.status) && attempt < 4) {
+      // Honour Retry-After when the node sends one; it knows its own window
+      // better than a doubling guess does.
+      const header = Number(res.headers.get("retry-after"));
+      const wait = Number.isFinite(header) && header > 0
+        ? Math.min(header * 1000, 10_000)
+        : 250 * 2 ** attempt;
+      await sleep(wait);
+      return rpc(method, params, attempt + 1);
+    }
+    throw new Error(
+      res.status === 429
+        ? `RPC HTTP 429 after ${attempt + 1} attempts — the node is rate limiting, ` +
+          "not rejecting the address"
+        : `RPC HTTP ${res.status}`,
+    );
+  }
   const json = await res.json();
   if (json.error) throw new Error(json.error.message);
   return json.result;
@@ -46,6 +82,8 @@ try {
 
 const ok = (s) => `  \x1b[32m✓\x1b[0m ${s}`;
 const bad = (s) => `  \x1b[31m✗\x1b[0m ${s}`;
+/** Said, counted, and not fatal. A check that could not run is not a check that failed. */
+const warn = (s) => `  \x1b[33m!\x1b[0m ${s}`;
 let failures = 0;
 
 console.log(`\nVerifying ${config.name} at ${config.rpcUrl}\n`);
@@ -188,6 +226,11 @@ try {
 const entries = Object.entries(ALL_TOKENS);
 console.log(`\nCanonical token registry (${entries.length} tokens):`);
 let mismatches = 0;
+// A token the node would not answer about is not a token that answered wrong.
+// Counting the two together fails the boot on a rate limit, and the restart
+// re-runs the same 194 calls — which is how a momentary limit becomes a crash
+// loop that sustains itself.
+let unverified = 0;
 for (const [ticker, entry] of entries) {
   try {
     const symbol = decodeString(await call(entry.address, "0x95d89b41"));
@@ -196,13 +239,24 @@ for (const [ticker, entry] of entries) {
     mismatches++;
     failures++;
   } catch (err) {
+    if (/rate limiting/.test(err.message)) {
+      unverified++;
+      continue;
+    }
     console.log(bad(`${ticker.padEnd(8)} ${entry.address} ${err.message}`));
     mismatches++;
     failures++;
   }
 }
-if (mismatches === 0) {
+if (mismatches === 0 && unverified === 0) {
   console.log(ok(`all ${entries.length} tokens report the expected symbol`));
+} else if (mismatches === 0) {
+  console.log(
+    warn(
+      `${entries.length - unverified} of ${entries.length} tokens verified; ` +
+        `${unverified} unread because the node rate limited. None reported a wrong symbol.`,
+    ),
+  );
 }
 
 console.log(
