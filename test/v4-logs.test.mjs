@@ -150,8 +150,14 @@ test("sells count toward volume as much as buys", async () => {
   assert.equal(obs.volume.m5, 3);
 });
 
-/** One trade, so the pool is observed at all. See the test below. */
-const traded = { block: 99_000, amount1: -1_000_000n, sqrt: 2n ** 96n };
+/**
+ * One recent trade, so the pool is observed at all.
+ *
+ * Inside the discovery window on purpose. A pool that traded half an hour ago
+ * and not since is not one the desk wants to quote into, and the cheap pass
+ * that finds active pools only looks at the last few minutes.
+ */
+const traded = { block: 99_950, amount1: -1_000_000n, sqrt: 2n ** 96n };
 
 test("a pool that has not traded in the window is not observed", async () => {
   // Deliberate. Observing every watched pool meant a state read and a day of
@@ -332,4 +338,30 @@ test("a pool with no recorded block still falls back to searching", async () => 
     stubFetch({ head, initAt: head - 600, swaps: [traded] }),
   );
   assert.equal(Math.round(obs.ageMinutes), 20);
+});
+
+test("a pool that traded an hour ago but not lately is not read", async () => {
+  // The cheap pass asks who traded just now. A pool that has gone quiet is
+  // one the desk does not want to be quoting into, and reading its hour of
+  // history to confirm that costs a query it can spend elsewhere.
+  const head = 100_000;
+  const stale = { block: head - 1_500, amount1: -1_000_000n, sqrt: 2n ** 96n };
+  assert.deepEqual(await observeWith(stubFetch({ head, swaps: [stale] })), []);
+});
+
+test("the full window is read for a pool the cheap pass found", async () => {
+  // Discovery is five minutes; the volume figure is the hour. A pool that is
+  // trading now gets its whole hour counted, not just the minutes that found it.
+  const head = 100_000;
+  const [obs] = await observeWith(
+    stubFetch({
+      head,
+      swaps: [
+        { block: head - 50, amount1: 1_000_000n }, // found it
+        { block: head - 1_500, amount1: 5_000_000n }, // ~50m ago, still counted
+      ],
+    }),
+  );
+  assert.equal(obs.volume.h1, 6, "both swaps, not just the recent one");
+  assert.equal(obs.volume.m5, 1);
 });
